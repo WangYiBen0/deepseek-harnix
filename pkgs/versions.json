@@ -1,0 +1,213 @@
+{
+  "_comment": "Hash list of packaged DeepSeek Harness releases. .github/workflows/update-versions.yml appends a new entry (version, rev, srcHash, pnpmDepsHash) when upstream tags a new dsh-v<version> release. Entries are ordered by release; the last one is this flake's default. Do not reorder or rewrite existing entries: hashes are part of the derivation identity.",
+  "versions": [
+    {
+      "version": "0.1.0-rc.7",
+      "rev": "dsh-v0.1.0-rc.7",
+      "srcHash": "sha256-d1YbRI85+9TPyiZVURvvYwXOY3Cpng63T1+FsTgqfdg=",
+      "pnpmDepsHash": "sha256-zmlWt5HYvzkCnCDD5X/psgfGPbRAUwO0p4qDtI5+R5M="
+    },
+    {
+      "version": "0.1.0-rc.8",
+      "rev": "dsh-v0.1.0-rc.8",
+      "commit": "141eb6fef83422698aef7a981029e843e8161534",
+      "srcHash": "sha256-O0ttYO+bsLoiYLhD4UoYbagbGeynx4Kog4Rr41PCnOE=",
+      "pnpmDepsHash": "sha256-+PsdK9u3ZKv4XtSc8tBKKP48J/95/CGTMIUf8Q8dbok="
+    },
+    {
+      "version": "0.1.1-rc.1",
+      "rev": "dsh-v0.1.1-rc.1",
+      "commit": "528c682e061696f5a160f363f236ecbf53cbd006",
+      "srcHash": "sha256-ydMkEBuYeMMtoNrUdCjCh4EE6YHi96PX2LgONtUEN90=",
+      "pnpmDepsHash": "sha256-+PsdK9u3ZKv4XtSc8tBKKP48J/95/CGTMIUf8Q8dbok="
+    },
+    {
+      "version": "0.1.1-rc.2",
+      "rev": "dsh-v0.1.1-rc.2",
+      "commit": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+      "srcHash": "sha256-GuPzw6XQjyRFiOHefTC7fHc4oSAnL28chMddeOeIxvk=",
+      "pnpmDepsHash": "sha256-+PsdK9u3ZKv4XtSc8tBKKP48J/95/CGTMIUf8Q8dbok="
+    },
+    {
+      "version": "0.1.2-alpha.1",
+      "rev": "dsh-v0.1.2-alpha.1",
+      "commit": "cd5ef8148158c3a752a658978873241fdf8e2bbc",
+      "srcHash": "sha256-tOAUsoyCys8CKnj+6ayCK+2omsX9qaaQrEq8HtgaeBs=",
+      "pnpmDepsHash": "sha256-F6hoP3TelUybd0cs/WfK6iakPPun3IaZKM3etkwlvaA="
+    },
+    {
+      "version": "0.1.2-alpha.2",
+      "rev": "dsh-v0.1.2-alpha.2",
+      "commit": "0a53fb55bea101816fa226bb964ae2bed71c343b",
+      "srcHash": "sha256-t2+LqVINFtQsmKk6pUCN+obEL2mo9qYjSzyAIEc3yUo=",
+      "pnpmDepsHash": "sha256-KK34f9oTm/ofvAR9VV/FGnR1jJAQUyFzQMz7a/Xv6VE="
+    },
+    {
+      "version": "0.1.2-alpha.3",
+      "rev": "dsh-v0.1.2-alpha.3",
+      "srcHash": "sha256-uQQv+6hjJ75qudjTbZtXAordLhislauCUVXqM7+jFPA=",
+      "pnpmDepsHash": "sha256-KK34f9oTm/ofvAR9VV/FGnR1jJAQUyFzQMz7a/Xv6VE="
+    },
+    {
+      "version": "0.1.2-alpha.4",
+      "rev": "dsh-v0.1.2-alpha.4",
+      "commit": "4e84901e6471b79ec0338099867ebb4606d12bb5",
+      "srcHash": "sha256-OM8NISyH8ChacDO+KBVtZ3y7nPuJWAF5ZVvVWgZvroY=",
+      "pnpmDepsHash": "sha256-KK34f9oTm/ofvAR9VV/FGnR1jJAQUyFzQMz7a/Xv6VE="
+    },
+    {
+      "version": "0.1.2-alpha.5",
+      "rev": "dsh-v0.1.2-alpha.5",
+      "commit": "db6bdc3576c2d4e7c965e8e3ed0c2a731eed87f5",
+      "srcHash": "sha256-6vr8zQvTVt9D/qKgjDkxdvB4WAudotKZu8lsy9yPmDM=",
+      "pnpmDepsHash": "sha256-KK34f9oTm/ofvAR9VV/FGnR1jJAQUyFzQMz7a/Xv6VE="
+    },
+    {
+      "version": "0.1.2-rc.1",
+      "rev": "dsh-v0.1.2-rc.1",
+      "commit": "a66e4702047846cdaa10c66c9d3df3951f5ea70d",
+      "srcHash": "sha256-aFBsnsJ8q8AqvlsWlPWksuCo/phd/BJjctHV54rbmlU=",
+      "pnpmDepsHash": "sha256-KK34f9oTm/ofvAR9VV/FGnR1jJAQUyFzQMz7a/Xv6VE="
+    },
+    {
+      "version": "0.1.3-alpha.1",
+      "rev": "dsh-v0.1.3-alpha.1",
+      "commit": "d347e703908d0406b7a7ef80e3a0e594d86b2215",
+      "srcHash": "sha256-OclNgC8PZ2fGEHHYBbAOnN2h5PVyBmsi+DhiN0VOhSo=",
+      "pnpmDepsHash": "sha256-IoX7qY6lXVJtYDljhSJF157JwZR72QZ1YX8Jpts7awk="
+    },
+    {
+      "version": "0.1.3-alpha.2",
+      "rev": "dsh-v0.1.3-alpha.2",
+      "commit": "82a5fd61a7cf5c293cec4bdff68f455398d685e9",
+      "srcHash": "sha256-Khsl6hwcOJzm18MRnqgCvu4pLKSARMKLiNmWwIJeL64=",
+      "pnpmDepsHash": "sha256-/wtt1qzoto4QSuDPwn63tTgwOn0ARHbnpP4Vh5lM/Ug="
+    },
+    {
+      "version": "0.1.5-alpha.1",
+      "rev": "dsh-v0.1.5-alpha.1",
+      "srcHash": "sha256-vm5035PlTff/p+62I+HSsUA1bQUhQ0kOLWSjAOxHz2M=",
+      "pnpmDepsHash": "sha256-nNinjYYQQFqGuUi15u/Z5k/zsqHbXQcQOUfTRUy22zE="
+    },
+    {
+      "version": "0.1.5-alpha.2",
+      "rev": "dsh-v0.1.5-alpha.2",
+      "srcHash": "sha256-gyJQQtgTEb+EE1IQezzFrk8pORfiE5RyEM8jEqrwEKc=",
+      "pnpmDepsHash": "sha256-/VnxXqJ3MUXIPB4rXOKu5FtArYVjyEry4ptRNHxYnrc="
+    },
+    {
+      "version": "0.1.5-rc.1",
+      "rev": "dsh-v0.1.5-rc.1",
+      "srcHash": "sha256-UqzUag5ux278+tur2GvUsc/Ml7OioU8jcG+kilJp6Mo=",
+      "pnpmDepsHash": "sha256-/VnxXqJ3MUXIPB4rXOKu5FtArYVjyEry4ptRNHxYnrc="
+    },
+    {
+      "version": "0.1.5-rc.2",
+      "rev": "dsh-v0.1.5-rc.2",
+      "commit": "fb2c4b9e698e30edb738bca4cf0618587db7d203",
+      "srcHash": "sha256-AkdKvotUnZFnukOa/dHOQNEmJpK7IMan5ROiYRmKPDM=",
+      "pnpmDepsHash": "sha256-/VnxXqJ3MUXIPB4rXOKu5FtArYVjyEry4ptRNHxYnrc="
+    },
+    {
+      "version": "0.1.5-rc.3",
+      "rev": "dsh-v0.1.5-rc.3",
+      "srcHash": "sha256-vthn7TKE2pz7ZwyLOmpubLu6pL2GT6XLN9K7vRT/NF4=",
+      "pnpmDepsHash": "sha256-/VnxXqJ3MUXIPB4rXOKu5FtArYVjyEry4ptRNHxYnrc="
+    },
+    {
+      "version": "0.1.6-alpha.1",
+      "rev": "dsh-v0.1.6-alpha.1",
+      "commit": "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d",
+      "srcHash": "sha256-EmbNOCPjdwY9Jv9ZzFwBIaNdPDC4kantCq0dHunonTQ=",
+      "pnpmDepsHash": "sha256-DNGGgnec3hFUs3LDorlUGzzgRT88i33y8TqyXfoXVnY="
+    },
+    {
+      "version": "0.1.6-alpha.2",
+      "rev": "dsh-v0.1.6-alpha.2",
+      "commit": "ddefc45fbc7f8e46dd73185e68295696d1297887",
+      "srcHash": "sha256-8ATnfN3FgvnICK8DSl6qdD8cUuwSC34Yk1CWovLKjNA=",
+      "pnpmDepsHash": "sha256-ec8cTYvji3Xw5+vkETJk62aZ8Ku0YEU9rrUvgcmT6LY="
+    },
+    {
+      "version": "0.1.7-alpha.1",
+      "rev": "dsh-v0.1.7-alpha.1",
+      "srcHash": "sha256-OZfDLCBqs3Nfn1mR/mGJGEm/Mr2mUQn1m4zpVgpIQ0Y=",
+      "pnpmDepsHash": "sha256-fP3G5PSvB574vM0ArjNvRwWUudVf/vvyOfUqVqZmRpA="
+    },
+    {
+      "version": "0.1.7-alpha.2",
+      "rev": "dsh-v0.1.7-alpha.2",
+      "srcHash": "sha256-06o8xZq7jAeouYuEu6WmHqrMDWm+J4UdJL4X7g7XLdc=",
+      "pnpmDepsHash": "sha256-i5XoYAHernnWFi3iAMrTUPJ5CQB4yx8XeSaChMotGyI="
+    },
+    {
+      "version": "0.1.7-rc.1",
+      "rev": "dsh-v0.1.7-rc.1",
+      "srcHash": "sha256-PQTHHat/3PpeGTwzSHSM7AfVgghzDVGMtImODZnR40c=",
+      "pnpmDepsHash": "sha256-nGuMPIaG8HcC0g1uZmDcalWzZO2hPuSRHSN6A5fJ+n0="
+    },
+    {
+      "version": "0.1.7-rc.2",
+      "rev": "dsh-v0.1.7-rc.2",
+      "srcHash": "sha256-ASGd0RLQnn+umMA+eCSGZ+AhoupkVzzY7MT6+GjpwmA=",
+      "pnpmDepsHash": "sha256-rDV6HxYwnPROBOP7/JY/cZ7kqmxv0zxOncjJghIvvM4="
+    },
+    {
+      "version": "0.2.0-rc.1",
+      "rev": "dsh-v0.2.0-rc.1",
+      "commit": "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+      "srcHash": "sha256-VkjJaYlUYuZjEqKSXi3x7vIYD+9jIQAAVcL+Ttocou4=",
+      "pnpmDepsHash": "sha256-nf943HpUoW1Ai+UEZd9MsO/4ZmvpesFkHaoNUtY6Iwc="
+    },
+    {
+      "version": "0.2.0-rc.2",
+      "rev": "dsh-v0.2.0-rc.2",
+      "srcHash": "sha256-8r1HngwiAK6cjH5f70tBXsIx1wce2f3wp3VeYvq6/o0=",
+      "pnpmDepsHash": "sha256-+7jFaROKpN8XHFpulloK2lb0GsYXbEdMs/V7ZO9leKE="
+    },
+    {
+      "version": "0.2.1-alpha.1",
+      "rev": "dsh-v0.2.1-alpha.1",
+      "srcHash": "sha256-FWqh9aV6q9xcyAtNcvcafjH713RXr3QogqxPtWB8XYw=",
+      "pnpmDepsHash": "sha256-/RvayNtK+6hJXOiRO17JZQS7lGFnPaQJQkD/Z8bUIHQ="
+    },
+    {
+      "version": "0.2.1-alpha.2",
+      "rev": "dsh-v0.2.1-alpha.2",
+      "srcHash": "sha256-jTbJYG/X2yl5Gc7UxWHX8jel0tPQF1EC01QPdWRXvOU=",
+      "pnpmDepsHash": "sha256-xj6Pw00JIpLHjRS7NROKTNY+GdExEKvHRyjJOwmyNXU="
+    },
+    {
+      "version": "0.2.1-alpha.3",
+      "rev": "dsh-v0.2.1-alpha.3",
+      "srcHash": "sha256-W8iZIFJ7+RlB1O88D0g7fmAgPIFhVu2xnjtkVl90fMg=",
+      "pnpmDepsHash": "sha256-gfDO4Z6Uks1dFLs7A+96tqTKEF1zEbZjVsQZzSQPFYA="
+    },
+    {
+      "version": "0.2.1-alpha.4",
+      "rev": "dsh-v0.2.1-alpha.4",
+      "srcHash": "sha256-+uHbaHqOYSH1GVTmmeBR3DUpBIZbjKOzEd/3V1qLe+4=",
+      "pnpmDepsHash": "sha256-C9Aw9AS4r7zubaEuT6mLXQ+AhhMVlTxPZRKTpzRUkcU="
+    },
+    {
+      "version": "0.2.1-alpha.5",
+      "rev": "dsh-v0.2.1-alpha.5",
+      "commit": "1517a4dbca0a2789ff1d41ba439600f8547d23fa",
+      "srcHash": "sha256-qeMEUJDTyXLQfQzS8/GifHeRscp29J4Fir0zCaBB0Rg=",
+      "pnpmDepsHash": "sha256-C9Aw9AS4r7zubaEuT6mLXQ+AhhMVlTxPZRKTpzRUkcU="
+    },
+    {
+      "version": "0.2.1-rc.1",
+      "rev": "dsh-v0.2.1-rc.1",
+      "commit": "1600d8a1e140dcde43a1a0941940a0480712c011",
+      "srcHash": "sha256-EpzXJNBzVAXOffTOUJ1xzt8W8ahy4iBgWi0bBUwK9Bg=",
+      "pnpmDepsHash": "sha256-C9Aw9AS4r7zubaEuT6mLXQ+AhhMVlTxPZRKTpzRUkcU="
+    },
+    {
+      "version": "0.2.1-rc.2",
+      "rev": "dsh-v0.2.1-rc.2",
+      "srcHash": "sha256-zHC9ywS/JBZVJW1Kxcjw371spoOaVllw3h30nfcTJUY=",
+      "pnpmDepsHash": "sha256-C9Aw9AS4r7zubaEuT6mLXQ+AhhMVlTxPZRKTpzRUkcU="
+    }
+  ]
+}

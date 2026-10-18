@@ -1,0 +1,7 @@
+/.prefetch/
+*.log
+/.dbg*
+/.drv.json
+/.tmp-*/
+/result
+/result-*

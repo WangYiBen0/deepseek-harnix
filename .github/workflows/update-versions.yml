@@ -1,0 +1,107 @@
+# Keep pkgs/versions.json in step with upstream dsh releases.
+#
+# On every run this workflow lists the upstream dsh-v* tags, picks the
+# versions that are not in pkgs/versions.json yet, computes their Nix hashes with
+# scripts/prefetch-dsh-version.sh (source fetch + pnpm dependency store), and
+# appends them. The result lands as a pull request by default; pass
+# direct_push=true on a workflow_dispatch run to commit straight to the
+# default branch.
+name: Update dsh versions
+
+on:
+  schedule:
+    # Daily, a little after upstream's usual release hours.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      direct_push:
+        description: "Commit directly to the default branch instead of opening a PR"
+        type: boolean
+        default: false
+
+concurrency:
+  group: update-dsh-versions
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  DSH_REPO: deepseek-ai/deepseek-harness
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Discover unreleased versions
+        id: discover
+        run: |
+          set -euo pipefail
+          git ls-remote --tags --refs "https://github.com/${DSH_REPO}" 'refs/tags/dsh-v*' |
+            sed 's|.*refs/tags/dsh-v||' | sort -uV > upstream.txt
+
+          jq -r '.versions[].version' pkgs/versions.json | sort -uV > known.txt
+
+          new=$(comm -13 known.txt upstream.txt)
+          if [ -z "$new" ]; then
+            echo "versions=" >> "$GITHUB_OUTPUT"
+            echo "No new dsh releases."
+            exit 0
+          fi
+          new=$(echo "$new" | tr '\n' ' ' | sed 's/ $//')
+          echo "versions=$new" >> "$GITHUB_OUTPUT"
+          echo "New versions: $new"
+
+      - name: Prefetch hashes for new versions
+        if: steps.discover.outputs.versions != ''
+        run: |
+          set -euo pipefail
+          # Hashes are computed with the flake's own pinned nixpkgs (the
+          # script resolves it from this checkout).
+          ./scripts/prefetch-dsh-version.sh ${{ steps.discover.outputs.versions }} > new-entries.jsonl
+          cat new-entries.jsonl
+
+      - name: Merge into pkgs/versions.json
+        if: steps.discover.outputs.versions != ''
+        run: |
+          set -euo pipefail
+          python3 scripts/merge-versions.py pkgs/versions.json new-entries.jsonl
+          jq -e '.versions | length > 0' pkgs/versions.json > /dev/null
+          rm new-entries.jsonl
+
+      - name: Open pull request
+        if: steps.discover.outputs.versions != '' && !inputs.direct_push
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/update-dsh-versions
+          delete-branch: true
+          title: "dsh: package new releases"
+          body: |
+            New DeepSeek Harness releases appended to `pkgs/versions.json`:
+
+            ${{ steps.discover.outputs.versions }}
+
+            Hashes computed by `scripts/prefetch-dsh-version.sh` against the
+            upstream `dsh-v*` tags. Each new version appears as a package set
+            (`dshPackageSets.<version>` / `latest` / `latestRc` / …); the newest becomes
+            the default `packages.*.deepseek-harness`.
+          add-paths: pkgs/versions.json
+          commit-message: "dsh: package ${{ steps.discover.outputs.versions }}"
+
+      - name: Push directly
+        if: steps.discover.outputs.versions != '' && inputs.direct_push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pkgs/versions.json
+          git commit -m "dsh: package ${{ steps.discover.outputs.versions }}"
+          git push

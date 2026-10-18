@@ -1,0 +1,11 @@
+{
+  "name": "dsh-test-persona",
+  "version": "1.0.0",
+  "description": "Minimal dsh bundle used by this flake's end-to-end checks: a patch-only plugin with no code and no dependencies",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

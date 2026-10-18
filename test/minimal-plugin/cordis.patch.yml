@@ -1,0 +1,5 @@
+# Minimal test patch layer: overrides a dsh-base service's config so the
+# end-to-end check can verify that a Nix-built plugin actually mounts.
+- id: system-prompt
+  config:
+    personaPrefix: "NIX-DSH-PLUGIN-E2E-MARKER"

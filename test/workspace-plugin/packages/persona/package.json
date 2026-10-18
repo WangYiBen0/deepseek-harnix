@@ -1,0 +1,17 @@
+{
+  "name": "dsh-test-persona-workspace",
+  "version": "2.0.0",
+  "description": "pnpm workspace member fixture for mkDshPlugin checks",
+  "license": "MIT",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
