@@ -38,6 +38,7 @@
 # For a pnpm/npm workspace repository, point at the member that is the
 # plugin: mkDshPlugin { src = ...; packageDir = "packages/plugin"; }.
 {
+
   lib,
   stdenv,
   nodejs_24,
@@ -51,9 +52,7 @@
   yarnConfigHook,
   fetchurl,
   runCommand,
-}:
 
-{
   # Source tree holding the plugin's package.json (optionally under
   # `packageDir`). Any fetcher result or plain store path works.
   src ? null,
@@ -79,6 +78,17 @@
 
   # npm/yarn build script name.
   npmBuildScript ? "build",
+
+  # Build a registry tarball from source despite it shipping lib/ (rarely
+  # needed: the tarball is upstream's published artifact).
+  npmBuild ? false,
+
+  # A package-lock.json for registry tarballs that ship no lockfile. The
+  # common case: generate once online from the tarball's package.json
+  #   npm install --package-lock-only
+  # and pass it here; `npm ci` then installs the runtime dependency tree
+  # offline from the fetched npm cache. Regenerate when bumping npmVersion.
+  npmLockfile ? null,
 
   # Drop devDependencies from the shipped node_modules (pnpm prune --prod /
   # npm prune --omit=dev). Off by default: some build layouts do not survive
@@ -106,7 +116,9 @@
 
   # nixpkgs-style meta overrides.
   meta ? { },
+
 }:
+
 
 let
   hasSrc = src != null;
@@ -121,6 +133,19 @@ let
       "https://registry.npmjs.org/${encoded}/-/${tarballBase}-${npmVersion}.tgz";
     inherit hash;
   };
+
+  # Registry tarball with an injected package-lock.json (when upstream ships
+  # none and `npmLockfile` is provided).
+  srcWithLock =
+    if hasRegistry && npmLockfile != null then
+      runCommand "dsh-plugin-src-${lib.strings.sanitizeDerivationName npmName}-${npmVersion}-locked" { } ''
+        mkdir -p $out
+        cp -r ${rawSrc}/. $out/
+        cp ${npmLockfile} $out/package-lock.json
+        chmod -R u+w $out
+      ''
+    else
+      rawSrc;
 
   rawSrc =
     if hasRegistry then
@@ -137,7 +162,7 @@ let
     if hasRegistry then "${npmName}-${npmVersion}" else (baseNameOf (toString src))
   )}"
     {
-      src = rawSrc;
+      src = if hasRegistry then srcWithLock else rawSrc;
       nativeBuildInputs = [ nodejs_24 ];
       packageRelDir = if packageDir != null then packageDir else "";
     }
@@ -210,7 +235,7 @@ assert
   manifest.version != null || version != null || throw
     "mkDshPlugin: source package.json has no `version`; pass `version` explicitly";
 assert
-  manifest.lockfile != null || (if hasRegistry then manifest.runtimeDependencyCount else manifest.dependencyCount) == 0 || throw ''
+  manifest.lockfile != null || npmLockfile != null || (if hasRegistry then manifest.runtimeDependencyCount else manifest.dependencyCount) == 0 || throw ''
     mkDshPlugin: ${finalName} declares dependencies but ships no lockfile.
     Offline packaging needs one of pnpm-lock.yaml, package-lock.json, or
     yarn.lock at the source root. Ask upstream to commit one, or vendor the
@@ -258,10 +283,18 @@ stdenv.mkDerivation (finalAttrs: {
       null;
 
   npmDeps =
-    if manifest.lockfile == "npm" then
+    if hasRegistry && (manifest.lockfile == "npm" || npmLockfile != null) then
+      fetchNpmDeps {
+        inherit (finalAttrs) pname version;
+        src = srcWithLock;
+        forceEmptyCache = manifest.dependencyCount == 0 && npmLockfile == null;
+        # Registry tarballs ship prebuilt lib/: install the runtime tree only.
+        npmInstallFlags = if npmBuild then "" else "--omit=dev";
+        hash = npmDepsHash;
+      }
+    else if manifest.lockfile == "npm" then
       fetchNpmDeps {
         inherit (finalAttrs) pname version src;
-        # Zero-dependency npm plugins ship an empty lockfile.
         forceEmptyCache = manifest.dependencyCount == 0;
         hash = npmDepsHash;
       }
@@ -279,7 +312,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   # Plugins without a build script ship their sources as-is.
   dontPnpmBuild = manifest.lockfile == "pnpm" && !manifest.hasBuildScript;
-  dontNpmBuild = manifest.lockfile != "pnpm" && !manifest.hasBuildScript;
+  dontNpmBuild =
+    (manifest.lockfile != "pnpm" && (!manifest.hasBuildScript || hasRegistry)) && !npmBuild;
   inherit npmBuildScript;
 
   # yarn has no ready-made build hook: run the build script explicitly.
