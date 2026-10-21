@@ -21,7 +21,7 @@
 #
 # Usage:
 #   mkDshPlugin {
-#     src = fetchFromGitHub {
+#     source = fetchFromGitHub {
 #       owner = "acme"; repo = "dsh-plugin-acme"; tag = "v1.2.3";
 #       hash = "sha256-...";
 #     };
@@ -36,7 +36,7 @@
 #   }
 #
 # For a pnpm/npm workspace repository, point at the member that is the
-# plugin: mkDshPlugin { src = ...; packageDir = "packages/plugin"; }.
+# plugin: mkDshPlugin { source = ...; packageDir = "packages/plugin"; }.
 {
 
   lib,
@@ -55,7 +55,7 @@
 
   # Source tree holding the plugin's package.json (optionally under
   # `packageDir`). Any fetcher result or plain store path works.
-  src ? null,
+  source ? null,
 
   # Alternative to `src`: fetch the plugin from the npm registry. Requires
   # `npmVersion` and `hash` (the registry tarball hash).
@@ -121,7 +121,7 @@
 
 
 let
-  hasSrc = src != null;
+  hasSrc = source != null;
   hasRegistry = npmName != null;
 
   registryTarball = fetchurl {
@@ -154,22 +154,22 @@ let
         tar -xzf ${registryTarball} -C $out --strip-components=1
       ''
     else
-      src;
+      source;
 
   # One cheap import-from-derivation read of the package metadata. Eval cost
   # is a single runCommand per unique plugin source; Nix caches the result.
   manifestDrv = runCommand "dsh-plugin-manifest-${lib.strings.sanitizeDerivationName (
-    if hasRegistry then "${npmName}-${npmVersion}" else (baseNameOf (toString src))
+    if hasRegistry then "${npmName}-${npmVersion}" else (baseNameOf (toString source))
   )}"
     {
-      src = if hasRegistry then srcWithLock else rawSrc;
+      source = if hasRegistry then srcWithLock else rawSrc;
       nativeBuildInputs = [ nodejs_24 ];
       packageRelDir = if packageDir != null then packageDir else "";
     }
     ''
-      pkg_dir="$src"
+      pkg_dir="$source"
       if [ -n "$packageRelDir" ]; then
-        pkg_dir="$src/$packageRelDir"
+        pkg_dir="$source/$packageRelDir"
       fi
       if [ ! -f "$pkg_dir/package.json" ]; then
         echo "mkDshPlugin: no package.json at $pkg_dir" >&2
@@ -203,7 +203,7 @@ let
           runtimeDependencyCount: count(manifest.dependencies),
         };
         fs.writeFileSync(out, JSON.stringify(result, null, 2));
-      ' "$pkg_dir" "$src" "$out"
+      ' "$pkg_dir" "$source" "$out"
     '';
 
   manifest = builtins.fromJSON (builtins.readFile manifestDrv);
@@ -223,8 +223,8 @@ let
     else "";
 
 in
-assert (hasSrc || hasRegistry) || throw "mkDshPlugin: pass `src` or `npmName`";
-assert (hasSrc && hasRegistry) == false || throw "mkDshPlugin: pass `src` or `npmName`, not both";
+assert (hasSrc || hasRegistry) || throw "mkDshPlugin: pass `source` or `npmName`";
+assert (hasSrc && hasRegistry) == false || throw "mkDshPlugin: pass `source` or `npmName`, not both";
 assert
   !hasRegistry || (npmVersion != null && hash != null) || throw
     "mkDshPlugin: `npmName` requires `npmVersion` and `hash`";
@@ -245,7 +245,7 @@ stdenv.mkDerivation (finalAttrs: {
   pname = lib.strings.sanitizeDerivationName finalName;
   version = finalVersion;
 
-  src = rawSrc;
+  src = if hasRegistry then srcWithLock else rawSrc;
 
   env =
     lib.optionalAttrs (manifest.lockfile == "pnpm") {
@@ -274,7 +274,7 @@ stdenv.mkDerivation (finalAttrs: {
   pnpmDeps =
     if manifest.lockfile == "pnpm" then
       fetchPnpmDeps {
-        inherit (finalAttrs) pname version src;
+        inherit (finalAttrs) pname version source;
         pnpm = pnpm_11;
         fetcherVersion = 4;
         hash = pnpmDepsHash;
@@ -294,7 +294,7 @@ stdenv.mkDerivation (finalAttrs: {
       }
     else if manifest.lockfile == "npm" then
       fetchNpmDeps {
-        inherit (finalAttrs) pname version src;
+        inherit (finalAttrs) pname version source;
         forceEmptyCache = manifest.dependencyCount == 0;
         hash = npmDepsHash;
       }
@@ -304,7 +304,7 @@ stdenv.mkDerivation (finalAttrs: {
   yarnOfflineCache =
     if manifest.lockfile == "yarn" then
       fetchYarnDeps {
-        inherit (finalAttrs) pname version src;
+        inherit (finalAttrs) pname version source;
         hash = yarnDepsHash;
       }
     else

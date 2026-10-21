@@ -5,7 +5,7 @@
     { pkgs, ... }:
     let
       set = flakelib.mkDshPackageSet pkgs flakelib.defaultRelease;
-      e2ePlugin = set.mkDshPlugin { src = ../test/minimal-plugin; };
+      e2ePlugin = set.mkDshPlugin { source = ../test/minimal-plugin; };
       e2eHarness = set.deepseek-harness.override { pluginList = [ e2ePlugin ]; };
       e2eProfileCfg = {
         includeBase = true;
@@ -25,7 +25,7 @@
         # mkDshPlugin through every supported packaging path.
         mkDshPlugin-npm = pkgs.runCommand "dsh-mkplugin-npm-check"
           { plugin = set.mkDshPlugin {
-              src = ../test/npm-plugin;
+              source = ../test/npm-plugin;
               npmDepsHash = "sha256-YvMlco6yhkcHf9gQBU9nCmUrHZ9EG/TpmOPM3a/V5D4=";
               dshVersionRange = ">=0.2.1-alpha.1 <0.3";
             }; }
@@ -39,7 +39,7 @@
 
         mkDshPlugin-pnpm-workspace = pkgs.runCommand "dsh-mkplugin-pnpm-workspace-check"
           { plugin = set.mkDshPlugin {
-              src = ../test/workspace-plugin;
+              source = ../test/workspace-plugin;
               packageDir = "packages/persona";
               pnpmDepsHash = "sha256-8w0PxLScmoAsePC+lUMGbieXl+TKWcndrvOKnBY+B2A=";
             }; }
@@ -93,7 +93,7 @@
             blocked = builtins.tryEval (
               (set.withPlugins [
                 (set.mkDshPlugin {
-                  src = ../test/minimal-plugin;
+                  source = ../test/minimal-plugin;
                   dshVersionRange = ">=99.0";
                 })
               ]).drvPath
