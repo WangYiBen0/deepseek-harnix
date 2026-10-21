@@ -99,6 +99,11 @@
   env ? { },
   nativeBuildInputs ? [ ],
 
+  # npm registry override for the build phase (pnpm/npm read
+  # npm_config_registry). Useful behind networks that block
+  # registry.npmjs.org; lockfile integrity hashes still apply.
+  npmRegistry ? null,
+
   # Whether pnpm may auto-install missing peer dependencies while building.
   # dsh supplies peers (cordis and friends) through its runtime resolver, so
   # the default is false — a plugin must not bundle a second shared
@@ -251,7 +256,16 @@ stdenv.mkDerivation (finalAttrs: {
     lib.optionalAttrs (manifest.lockfile == "pnpm") {
       pnpm_config_auto_install_peers = if autoInstallPeers then "true" else "false";
     }
+    // lib.optionalAttrs (npmRegistry != null) {
+      npm_config_registry = npmRegistry;
+      pnpm_config_registry = npmRegistry;
+    }
     // env;
+
+  preBuild = lib.optionalString (npmRegistry != null) ''
+    printf 'registry=%s\n' "$npm_config_registry" > .npmrc
+    export npm_config_registry="$npmRegistry"
+  '';
 
   pnpmRoot = if packageDir != null then packageDir else null;
 
