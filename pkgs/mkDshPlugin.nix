@@ -264,7 +264,6 @@ stdenv.mkDerivation (finalAttrs: {
 
   preBuild = lib.optionalString (npmRegistry != null) ''
     printf 'registry=%s\n' "$npm_config_registry" > .npmrc
-    export npm_config_registry="$npmRegistry"
   '';
 
   pnpmRoot = if packageDir != null then packageDir else null;
