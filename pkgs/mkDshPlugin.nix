@@ -275,7 +275,7 @@ stdenv.mkDerivation (finalAttrs: {
     if manifest.lockfile == "pnpm" then
       fetchPnpmDeps {
         inherit (finalAttrs) pname version;
-        source = if hasRegistry then srcWithLock else source;
+        src = if hasRegistry then srcWithLock else source;
         pnpm = pnpm_11;
         fetcherVersion = 4;
         hash = pnpmDepsHash;
