@@ -4,7 +4,7 @@
 # lists) and exported as `engines.dsh` in the generated plugin registry.
 #
 # Add an entry per plugin:
-#   <name> = mkDshPlugin { src = …; dshVersionRange = ">=0.2.1-alpha.1"; };
+#   <name> = mkDshPlugin { source = …; dshVersionRange = ">=0.2.1-alpha.1"; };
 {
   pkgs,
 }:
@@ -15,13 +15,13 @@ in
 {
   # Patch-only example bundle from this repository's fixtures.
   test-persona = mk {
-    src = ../test/minimal-plugin;
+    source = ../test/minimal-plugin;
     dshVersionRange = ">=0.2.1-alpha.1";
   };
 
   # npm lockfile fixture bundle (exercises the npm path).
   test-npm = mk {
-    src = ../test/npm-plugin;
+    source = ../test/npm-plugin;
     npmDepsHash = "sha256-YvMlco6yhkcHf9gQBU9nCmUrHZ9EG/TpmOPM3a/V5D4=";
     dshVersionRange = ">=0.2.1-alpha.1 <0.3";
   };
@@ -29,7 +29,7 @@ in
   # pnpm workspace member fixture bundle (exercises packageDir + the
   # lockfile-at-root fetch).
   test-persona-workspace = mk {
-    src = ../test/workspace-plugin;
+    source = ../test/workspace-plugin;
     packageDir = "packages/persona";
     pnpmDepsHash = "sha256-8w0PxLScmoAsePC+lUMGbieXl+TKWcndrvOKnBY+B2A=";
     dshVersionRange = ">=0.2.1-alpha.1";
