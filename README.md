@@ -99,7 +99,9 @@ mkDshPlugin {
   version = "…";                        #   package.json
   pnpmDepsHash = lib.fakeHash;          # deps store hash (pnpm projects)
   npmDepsHash = lib.fakeHash;           # … or npm / yarnDepsHash (yarn)
-  npmBuildScript = "build";
+  npmBuildScript = "build";             # also used as pnpmBuildScript
+  nestedPnpmDeps = fetchPnpmDeps { … }; # pnpm store for a nested workspace
+  nestedPnpmDir = "vendor/dsh-std";     # … and where to point it
   pruneDevDependencies = false;         # drop devDependencies from output
   env = { … };                          # extra build env
   nativeBuildInputs = [ … ];
@@ -117,6 +119,13 @@ Behavior:
 - the output is the plugin package directory (`package.json` at `$out`)
   together with its `node_modules` — a self-contained package, the same shape
   dsh's profile loader expects for out-of-tree bundles,
+- a pnpm workspace that also builds a **nested** workspace with its own
+  lockfile (`vendor/…`, a git submodule) needs its own dependency store:
+  `nestedPnpmDeps` is unpacked and `nestedPnpmDir`'s `pnpm-workspace.yaml` is
+  extended with `storeDir` + `offline` (pnpm 11 ignores `.npmrc` and
+  `npm_config_*` for these settings),
+- `npmBuildScript` selects the script for both package managers; plugins that
+  run a verification harness from `build` (dsh-tui) can point it at `compile`,
 - peers (cordis and friends) are **not** auto-installed (`autoInstallPeers =
   false`): dsh's runtime resolver supplies the installation's single shared
   instance to every profile plugin, so a plugin must never bundle a second
@@ -294,9 +303,9 @@ $ python3 scripts/merge-versions.py pkgs/versions.json new.jsonl
 
 ## Development
 
-Inputs are pinned via direct tarball URLs (the GitHub REST API is
-aggressively rate-limited on shared IPs); flake.lock pins the content hashes.
-Bump with `nix flake update`.
+Inputs are pinned to a `github:owner/repo` ref plus the `narHash`/`rev`
+recorded in flake.lock — never to a moving `archive/*.tar.gz` URL, whose hash
+changes upstream and breaks every evaluation. Bump with `nix flake update`.
 
 This repository is a git-tracked flake: `nix build .#…` and every other
 installable evaluate the **committed** tree, so uncommitted edits are
@@ -315,6 +324,42 @@ check: it builds through `mkDshPlugin`, is baked into the harness with
 `pluginList`, mounts through a declaratively materialized profile, and the
 check verifies its patch layer takes effect in the running dsh.
 
+## Tested plugins
+
+`test/plugins/` builds real, published plugins through `mkDshPlugin`
+(`driver.sh` + one case file per plugin):
+
+```console
+$ ./test/plugins/driver.sh test/plugins/cases/*.sh
+```
+
+The suite covers every third-party plugin of a real-world profile and is the
+compatibility contract for the builder:
+
+| Plugin | Version | Path |
+| --- | --- | --- |
+| `@deepseek-harness-tui/dsh-tui` | git `1056fac` | source + submodule + nested pnpm workspace |
+| `@opencode2dsh/dsh-plugin` | 0.3.13 | npm tarball + lockfile |
+| `@michengai/dsh-archive-manager` | 1.1.6 | npm tarball |
+| `@xmanrui/dsh-im` | 5.4.0 | source |
+| `dsh-chat-import` | 0.26.2 | source |
+| `dsh-background-by-model` | 0.9.1 | source |
+| `dsh-free-search` | 0.9.13 | source |
+| `dsh-pocket` | 2.12.0 | source |
+| `dsh-ops` | 0.3.2 | npm tarball |
+| `dshmarket` | 1.66.42 | npm tarball + lockfile |
+| `dsh-context` | 0.73.3 | npm tarball + lockfile |
+| `dsh-tool-normalizer` | 0.5.2 | npm tarball + lockfile |
+| `dsh-whale-widget` | 0.4.2 | npm tarball |
+
+Known limits:
+
+- a plugin built from **source** compiles against its peers (`@deepseek-ai/*`,
+  cordis); `mkDshPlugin` does not inject a dsh installation into
+  `node_modules`, so prefer the published tarball when one exists,
+- plugins whose `build` script runs a harness that needs a live dsh
+  (`verify:build`) must point `npmBuildScript` at a plain compile script.
+
 ## Repository layout
 
 Structured like nixvim: thin `flake.nix` (flake-parts), output wiring in
@@ -328,6 +373,7 @@ and the NixOS/HM modules in `modules/`.
 | `lib/default.nix` | internal helpers: release list, version-name sanitizing, `mkDshPackageSet` |
 | `pkgs/deepseek-harness.nix` | the deepseek-harness package (version + hashes parameterized) |
 | `pkgs/mkDshPlugin.nix` | npm/GitHub → dsh plugin package builder |
+| `test/plugins/` | real-plugin compatibility suite (`driver.sh`, `cases/`) |
 | `pkgs/versions.json` | the release hash list (append-only, action-maintained) |
 | `modules/options.nix` | shared `programs.dsh` options |
 | `modules/nixos.nix` | NixOS module (activation sync, user service) |
