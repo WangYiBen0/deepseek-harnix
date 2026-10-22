@@ -52,6 +52,8 @@
   yarnConfigHook,
   fetchurl,
   runCommand,
+  zstd,
+  sqlite,
 
   # Source tree holding the plugin's package.json (optionally under
   # `packageDir`). Any fetcher result or plain store path works.
@@ -117,6 +119,18 @@
   # peer dependencies (cordis, @deepseek-ai/*) are left to the dsh runtime
   # instead of being resolved against the registry.
   npmFlags ? null,
+
+  # Offline pnpm store for a nested workspace that the plugin's build script
+  # installs itself (for example a vendored git submodule with its own
+  # pnpm-lock.yaml). Pass `fetchPnpmDeps { src = ./vendor/foo; ...; }`.
+  # Nix builds have no network, so the nested `pnpm install` must find every
+  # package in this store.
+  nestedPnpmDeps ? null,
+
+  # Directory of that nested workspace, relative to the source root
+  # (for example "vendor/dsh-std"). Its pnpm-workspace.yaml is extended
+  # with the offline store settings.
+  nestedPnpmDir ? null,
 
   # Static compatibility gate: a node-semver range the plugin supports,
   # checked against the harness version at evaluation time wherever the
@@ -309,9 +323,32 @@ stdenv.mkDerivation (finalAttrs: {
     }
     // env;
 
-  preBuild = lib.optionalString (npmRegistry != null) ''
-    printf 'registry=%s\n' "$npm_config_registry" > .npmrc
-  '';
+  preBuild =
+    lib.optionalString (npmRegistry != null) ''
+      printf 'registry=%s\n' "$npm_config_registry" > .npmrc
+    ''
+    + lib.optionalString (nestedPnpmDeps != null) (
+      let
+        store = "$TMPDIR/nested-pnpm-store";
+      in
+      ''
+        echo "mkDshPlugin: unpacking the nested pnpm store"
+        nested_store=${store}
+        mkdir -p "$nested_store"
+        tar --zstd -xf ${nestedPnpmDeps}/pnpm-store.tar.zst -C "$nested_store"
+        chmod -R +w "$nested_store"
+        if [ -f "$nested_store/v11/index.db.sql" ]; then
+          sqlite3 "$nested_store/v11/index.db" < "$nested_store/v11/index.db.sql"
+          rm -f "$nested_store/v11/index.db.sql"
+        fi
+        # Nix builds have no network: point the nested workspace at this
+        # store and make pnpm refuse to reach for a registry.
+        ${lib.optionalString (nestedPnpmDir != null) ''
+          nested_ws=${lib.escapeShellArg nestedPnpmDir}
+          printf 'storeDir: %s\noffline: true\n' "$nested_store" >> "$nested_ws/pnpm-workspace.yaml"
+        ''}
+      ''
+    );
 
   npmFlags = npmFlagsFinal;
 
@@ -319,6 +356,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs =
     [ nodejs_24 ]
+    ++ lib.optionals (nestedPnpmDeps != null) [
+      zstd
+      sqlite
+    ]
     ++ lib.optionals (manifest.lockfile == "pnpm") [
       pnpm_11
       pnpmConfigHook
@@ -380,6 +421,8 @@ stdenv.mkDerivation (finalAttrs: {
   dontNpmBuild =
     (manifest.lockfile != "pnpm" && (!manifest.hasBuildScript || hasRegistry)) && !npmBuild;
   inherit npmBuildScript;
+  # pnpmBuildHook reads pnpmBuildScript, not npmBuildScript.
+  pnpmBuildScript = npmBuildScript;
 
   # yarn has no ready-made build hook: run the build script explicitly.
   buildPhase =

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Robustness test driver: build ONE real plugin through mkDshPlugin.
 # Usage: test-driver.sh <case.sh>   (case files in .prefetch/cases/)
-# Case variables: NAME URL VERSION (npm) | NAME REPO BRANCH KIND LOCK PACKAGE_DIR SUBMODULES AUTO_INSTALL_PEERS (src)
+# Case variables: NAME URL VERSION (npm) | NAME REPO BRANCH KIND LOCK PACKAGE_DIR SUBMODULES AUTO_INSTALL_PEERS NESTED_VENDOR (src)
 set -u
 export XDG_CACHE_HOME=/tmp/nixcache NIX_CONFIG="eval-cache = false
 connect-timeout = 10
@@ -55,9 +55,6 @@ run_case() {
       if [ -n "${NPM_LOCKFILE:-}" ]; then
         args="$args npmLockfile = ./$NPM_LOCKFILE;"
       fi
-      if [ -n "${NPM_REGISTRY:-}" ]; then
-        args="$args npmRegistry = \"$NPM_REGISTRY\";"
-      fi
       if [ -n "${NPM_DEPS_HASH:-}" ]; then
         args="$args npmDepsHash = \"$NPM_DEPS_HASH\";"
       fi
@@ -81,6 +78,17 @@ run_case() {
         if [ -n "$PACKAGE_DIR" ]; then
           args="$args packageDir = \"$PACKAGE_DIR\";"
         fi
+        if [ -n "${NESTED_VENDOR:-}" ]; then
+          local nested_expr nested_hash
+          nested_expr="pkgs.fetchPnpmDeps { pname = \"dsh-plugin-test-nested\"; version = \"0\"; src = ($(src_fetcher "$src_hash")) + \"/$NESTED_VENDOR\"; pnpm = pkgs.pnpm_11; fetcherVersion = 4; hash = \"\"; }"
+          if ! nested_hash=$(sha_of "$nested_expr"); then
+            echo "FAIL  (nested pnpm deps)"; return 1
+          fi
+          args="$args nestedPnpmDeps = pkgs.fetchPnpmDeps { pname = \"dsh-plugin-test-nested\"; version = \"0\"; src = ($(src_fetcher "$src_hash")) + \"/$NESTED_VENDOR\"; pnpm = pkgs.pnpm_11; fetcherVersion = 4; hash = \"$nested_hash\"; }; nestedPnpmDir = \"$NESTED_VENDOR\";"
+          if [ -n "${BUILD_SCRIPT:-}" ]; then
+            args="$args npmBuildScript = \"$BUILD_SCRIPT\";"
+          fi
+        fi
       else
         if ! deps_hash=$(sha_of "pkgs.fetchNpmDeps { pname = \"dsh-plugin-test\"; version = \"0\"; src = $(src_fetcher "$src_hash"); hash = \"\"; }"); then
           echo "FAIL  (npm deps)"; return 1
@@ -89,6 +97,10 @@ run_case() {
       fi
       ;;
   esac
+
+  if [ -n "${NPM_REGISTRY:-}" ]; then
+    args="$args npmRegistry = \"$NPM_REGISTRY\";"
+  fi
 
   local expr="let pkgs = import <nixpkgs> {}; in
       pkgs.callPackage ./pkgs/mkDshPlugin.nix ({ source = null; } // { $args })"

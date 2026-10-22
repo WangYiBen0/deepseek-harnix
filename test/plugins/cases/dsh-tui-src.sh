@@ -5,3 +5,5 @@ KIND=src
 LOCK=pnpm
 SUBMODULES=true
 AUTO_INSTALL_PEERS=true
+NESTED_VENDOR="vendor/dsh-std"
+BUILD_SCRIPT="compile"
