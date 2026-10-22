@@ -308,7 +308,8 @@ stdenv.mkDerivation (finalAttrs: {
       }
     else if manifest.lockfile == "npm" then
       fetchNpmDeps {
-        inherit (finalAttrs) pname version source;
+        inherit (finalAttrs) pname version;
+        src = source;
         forceEmptyCache = manifest.dependencyCount == 0;
         hash = npmDepsHash;
       }
@@ -318,7 +319,8 @@ stdenv.mkDerivation (finalAttrs: {
   yarnOfflineCache =
     if manifest.lockfile == "yarn" then
       fetchYarnDeps {
-        inherit (finalAttrs) pname version source;
+        inherit (finalAttrs) pname version;
+        src = source;
         hash = yarnDepsHash;
       }
     else

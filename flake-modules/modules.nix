@@ -9,7 +9,6 @@
       args:
       (inputs.nixpkgs.legacyPackages.${builtins.currentSystem or "x86_64-linux"}).callPackage
         ../pkgs/mkDshPlugin.nix
-        { }
         args;
   };
 }

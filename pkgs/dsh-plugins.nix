@@ -10,7 +10,7 @@
 }:
 
 let
-  mk = args: pkgs.callPackage ./mkDshPlugin.nix { } args;
+  mk = args: pkgs.callPackage ./mkDshPlugin.nix args;
 in
 {
   # Patch-only example bundle from this repository's fixtures.

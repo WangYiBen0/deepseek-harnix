@@ -110,7 +110,7 @@ in
             bundles = [ "@deepseek-ai/dsh-web-app" ];
             plugins = [
               (mkDshPlugin {
-                src = fetchFromGitHub {
+                source = fetchFromGitHub {
                   owner = "acme"; repo = "dsh-plugin-acme"; tag = "v1.2.3";
                   hash = "sha256-AAAA…";
                 };

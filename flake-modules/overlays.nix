@@ -5,7 +5,7 @@
     final: _prev:
     {
       deepseek-harness = (flakelib.mkDshPackageSet final flakelib.defaultRelease).deepseek-harness;
-      mkDshPlugin = final.callPackage ../pkgs/mkDshPlugin.nix { };
+      mkDshPlugin = args: final.callPackage ../pkgs/mkDshPlugin.nix args;
       dshPackageSets = lib.listToAttrs (
         map (entry: lib.nameValuePair entry.version (flakelib.mkDshPackageSet final entry)) flakelib.releases
       );

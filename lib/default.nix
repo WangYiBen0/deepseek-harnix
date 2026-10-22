@@ -164,6 +164,6 @@ in
               plugin
           ) pluginList;
         };
-      mkDshPlugin = pkgs.callPackage ../pkgs/mkDshPlugin.nix { };
+      mkDshPlugin = args: pkgs.callPackage ../pkgs/mkDshPlugin.nix args;
     };
 }
