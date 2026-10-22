@@ -3,7 +3,8 @@
 Nix packaging and declarative configuration for
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh):
 
-- **every packaged dsh release** becomes a package set under `dshPackageSets`, with
+- **every packaged dsh release** becomes a package set under
+  `legacyPackages.<system>.dshPackageSets`, with
   `latest` / `latestRc` / `latestStable` / … channel shortcuts,
   overridable with `.override { pluginList = [ … ]; }`,
 - **`mkDshPlugin`** builds an out-of-tree plugin ("bundle") from an npm package
@@ -20,14 +21,15 @@ Nix packaging and declarative configuration for
 $ nix run .#dsh
 
 # Build the newest release, or a channel's newest
-$ nix build .#dshPackageSets.latest.deepseek-harness
-$ nix build .#dshPackageSets.latestRc.deepseek-harness
+$ nix build .#legacyPackages.x86_64-linux.dshPackageSets.latest.deepseek-harness
+$ nix build .#legacyPackages.x86_64-linux.dshPackageSets.latestRc.deepseek-harness
 
-# Build a specific release
-$ nix build .#dshPackageSets."0.2.1-rc.2".deepseek-harness
+# Build a specific release (same thing as the package below, with plugins)
+$ nix build .#packages.x86_64-linux.deepseek-harness_0.2.1-rc.2
+$ nix build .#legacyPackages.x86_64-linux.dshPackageSets."0.2.1-rc.2".deepseek-harness
 
 # List packaged releases
-$ nix eval .#dshPackageSets --apply builtins.attrNames
+$ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
 [ "0.2.1-alpha.3" "0.2.1-rc.2" "latest" "latestAlpha" "latestRc" ]
 ```
 
@@ -42,15 +44,25 @@ Flake outputs:
 | --- | --- |
 | `packages.<system>.*` | `default` / `deepseek-harness` (newest release) and `deepseek-harness_<Version>` per release |
 | `apps.<system>.*` | `dsh` — run the CLI without installing |
-| `dshPackageSets.<version>` | package set per release, keyed by the exact version string |
-| `dshPackageSets.latest`, `.latestRc`, … | channel shortcuts (newest per pre-release label) |
-| `mkDshPlugin` | plugin builder, bound to the current system |
+| `packages.<system>.dsh-plugin-registry` | static npm registry tree built from the curated plugin catalog |
+| `legacyPackages.<system>.dshPackageSets.<version>` | package set per release, keyed by the exact version string |
+| `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, … | channel shortcuts (newest per pre-release label) |
+| `legacyPackages.<system>.dshPlugins` | curated plugin catalog (`pkgs/dsh-plugins.nix`) |
+| `lib.mkDshPlugin` | plugin builder, bound to the current system |
 | `overlays.default` | `deepseek-harness`, `mkDshPlugin`, `dshPackageSets` into a pkgs |
 | `nixosModules.default`, `homeManagerModules.default` | declarative profiles and services |
 | `checks.<system>.*` | `plugin-e2e`, `home-manager-module`, `versions-json` |
 
 Each package set exposes `deepseek-harness` (alias `dsh`), `withPlugins`,
 `mkDshPlugin`, and `version`.
+
+Only names from the flake schema are used at the top level (`packages`,
+`apps`, `checks`, `lib`, `legacyPackages`, `overlays`, `nixosModules`):
+a bespoke output such as `dshPackageSets` makes `nix flake check` print
+`warning: unknown flake output …` and `nix flake show` render it as
+`unknown`, so the non-derivation data lives under `legacyPackages` instead.
+`homeManagerModules` keeps its conventional name (the home-manager
+ecosystem's convention) and is the only remaining non-schema output.
 
 ## Baking in plugins
 
@@ -62,9 +74,10 @@ package-manager run and without network access:
 ```nix
 let
   flake = builtins.getFlake "github:<owner>/deepseek-harnix";
-  mkDshPlugin = flake.mkDshPlugin;
+  mkDshPlugin = flake.lib.mkDshPlugin;
+  sets = flake.legacyPackages.${builtins.currentSystem}.dshPackageSets;
 in
-flake.dshPackageSets.latest.deepseek-harness.override {
+sets.latest.deepseek-harness.override {
   pluginList = [
     (mkDshPlugin {
       src = fetchFromGitHub {
@@ -133,7 +146,7 @@ Behavior:
 
 Accessible as the top-level `mkDshPlugin` (evaluates for the current system),
 as `pkgs.mkDshPlugin` through `overlays.default`, or per package set:
-`dshPackageSets.latest.mkDshPlugin`.
+`legacyPackages.<system>.dshPackageSets.latest.mkDshPlugin`.
 
 ## Declarative profiles (NixOS / Home Manager)
 
@@ -223,7 +236,7 @@ Catalog entries (and any `mkDshPlugin` call) may declare `dshVersionRange`
 flake enforces it **at evaluation time** wherever the plugin meets a harness
 version:
 
-- `dshPackageSets.<v>.withPlugins [ … ]` / `.deepseek-harness.override { pluginList = …; }`
+- `legacyPackages.<system>.dshPackageSets.<v>.withPlugins [ … ]` / `.deepseek-harness.override { pluginList = …; }`
   fail to evaluate when a plugin's range does not admit that set's version,
 - the module options fail when a profile plugin does not admit
   `programs.dsh.package`.
@@ -289,7 +302,7 @@ manual dispatch pushes straight to the default branch instead). The default
 
 The list covers **every** historical upstream tag, so old releases stay
 buildable and addressable — e.g.
-`nix build .#dshPackageSets."0.1.5-rc.3".deepseek-harness`. Note that the
+`nix build .#legacyPackages.x86_64-linux.dshPackageSets."0.1.5-rc.3".deepseek-harness`. Note that the
 packaging (`pkgs/deepseek-harness.nix`) is maintained against current dsh:
 the further back a tag is, the likelier its build needs packaging work, even
 though its hashes resolve fine.

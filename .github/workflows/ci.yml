@@ -24,7 +24,7 @@ jobs:
       - name: Evaluate all outputs
         run: |
           set -euo pipefail
-          nix eval .#dshPackageSets --apply builtins.attrNames
+          nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
           nix eval .#packages.x86_64-linux --apply builtins.attrNames
           nix eval .#checks.x86_64-linux --apply builtins.attrNames
           nix flake show --legacy

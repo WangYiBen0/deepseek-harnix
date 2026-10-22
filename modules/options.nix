@@ -25,7 +25,8 @@ in
       };
       defaultText = lib.literalMD "the newest release from `pkgs/versions.json`, built by this flake's `pkgs/deepseek-harness.nix`";
       example = lib.literalExpression ''
-        inputs.deepseek-harnix.dshPackageSets.latest.deepseek-harness.override {
+        inputs.deepseek-harnix.legacyPackages.''${pkgs.stdenv.hostPlatform.system}
+            .dshPackageSets.latest.deepseek-harness.override {
           pluginList = [ ];
         }
       '';

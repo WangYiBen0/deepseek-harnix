@@ -1,10 +1,11 @@
-{ lib, flakelib, inputs, self, ... }:
+{ lib, flakelib, inputs, ... }:
 
 let
-  # Top-level package-set outputs evaluate for the requesting system.
+  # Package-set data evaluates for the requesting system.
   currentSystem = builtins.currentSystem or "x86_64-linux";
   pkgsFor = system: inputs.nixpkgs.legacyPackages.${system};
   mkSet = entry: flakelib.mkDshPackageSet (pkgsFor currentSystem) entry;
+  catalogFor = pkgs: import ../pkgs/dsh-plugins.nix { inherit pkgs; };
 
   upperFirst =
     s: (lib.toUpper (builtins.substring 0 1 s)) + (builtins.substring 1 (builtins.stringLength s) s);
@@ -24,19 +25,18 @@ let
   );
 in
 {
-  flake.dshPackageSets = {
-    latest = mkSet (flakelib.latestOf "any");
-  } // channelSets // lib.listToAttrs (
-    map (entry: lib.nameValuePair entry.version (mkSet entry)) flakelib.releases
-  );
+  # Per-release package sets and the curated plugin catalog are plain data,
+  # not derivations, so they live under `legacyPackages` — the flake schema
+  # has no slot for them, and inventing a top-level output makes
+  # `nix flake show` render it as "unknown" and flake checkers warn.
+  flake.legacyPackages.${currentSystem} = {
+    dshPackageSets = {
+      latest = mkSet (flakelib.latestOf "any");
+    } // channelSets // lib.listToAttrs (
+      map (entry: lib.nameValuePair entry.version (mkSet entry)) flakelib.releases
+    );
 
-  # Curated plugin catalog (pkgs/dsh-plugins.nix) and the static npm
-  # registry tree built from it (the plugin-manager "subscription link").
-  flake.dshPlugins = import ../pkgs/dsh-plugins.nix {
-    pkgs = pkgsFor currentSystem;
-  };
-  flake.dshPluginRegistry = (pkgsFor currentSystem).callPackage ../pkgs/dsh-plugin-registry.nix {
-    plugins = self.dshPlugins;
+    dshPlugins = catalogFor (pkgsFor currentSystem);
   };
 
   perSystem =
@@ -45,6 +45,12 @@ in
       packages = {
         deepseek-harness = (flakelib.mkDshPackageSet pkgs flakelib.defaultRelease).deepseek-harness;
         default = config.packages.deepseek-harness;
+
+        # Static npm registry tree built from the curated catalog — the
+        # plugin-manager "subscription link".
+        dsh-plugin-registry = pkgs.callPackage ../pkgs/dsh-plugin-registry.nix {
+          plugins = catalogFor pkgs;
+        };
       } // lib.listToAttrs (
         map (
           entry:
