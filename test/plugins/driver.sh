@@ -4,15 +4,19 @@
 # Case variables: NAME URL VERSION (npm) | NAME REPO BRANCH KIND LOCK PACKAGE_DIR SUBMODULES AUTO_INSTALL_PEERS NESTED_VENDOR (src)
 set -u
 export XDG_CACHE_HOME=/tmp/nixcache NIX_CONFIG="eval-cache = false
-connect-timeout = 10
+connect-timeout = 30
 stalled-download-timeout = 30"
 export NIX_NPM_REGISTRY="https://registry.npmmirror.com/"
 cd /home/w1ngd1nga5ter/Projects/deepseek-harnix
 
 sha_of() {
-  local out
-  out=$(timeout 1200 nix build -L --impure --no-link --expr "let pkgs = import <nixpkgs> {}; in $1" 2>&1 |
-    grep -oP 'got path: */nix/store/\S+' | tail -1 | awk '{print $3}')
+  local out attempt
+  for attempt in 1 2 3; do
+    out=$(timeout 1200 nix build -L --impure --no-link --expr "let pkgs = import <nixpkgs> {}; in $1" 2>&1 |
+      grep -oP 'got path: */nix/store/\S+' | tail -1 | awk '{print $3}')
+    [ -n "$out" ] && [ -e "$out" ] && break
+    sleep 5
+  done
   if [ -z "$out" ] || [ ! -e "$out" ]; then
     return 1
   fi
@@ -42,7 +46,7 @@ run_case() {
   local safe log
   safe=$(safe_name "$NAME")
   log=".prefetch/t-$safe.log"
-  printf "%-30s" "$NAME"
+  printf "%-30s " "$NAME"
 
   local args=""
   case "$KIND" in
@@ -61,9 +65,26 @@ run_case() {
       ;;
     src)
       local commit src_hash deps_hash fetcher_src
-      if ! commit=$(timeout 60 gh api "repos/$REPO/commits/$BRANCH" --jq '.sha' 2>/dev/null); then
+      # git ls-remote needs no API quota; gh api is the fallback, and a
+      # cached sha keeps the suite runnable while GitHub is flaky.
+      commit_cache=".prefetch/commits/${REPO//\//_}-${BRANCH//\//_}"
+      for _try in 1 2 3; do
+        commit=$(timeout 90 git ls-remote "https://github.com/$REPO.git" "$BRANCH" 2>/dev/null | head -1 | cut -f1)
+        [ -n "$commit" ] && break
+        commit=$(timeout 90 env XDG_CACHE_HOME="$PWD/.prefetch/ghcache" \
+          gh api "repos/$REPO/commits/$BRANCH" --jq '.sha' 2>/dev/null)
+        [ -n "$commit" ] && break
+        sleep 5
+      done
+      if [ -z "$commit" ] && [ -f "$commit_cache" ]; then
+        commit=$(cat "$commit_cache")
+        echo "      (using cached commit ${commit:0:12})"
+      fi
+      if [ -z "$commit" ]; then
         echo "FAIL  (commit resolve)"; return 1
       fi
+      mkdir -p "$(dirname "$commit_cache")"
+      printf '%s\n' "$commit" > "$commit_cache"
       if ! src_hash=$(sha_of "$(src_fetcher "")"); then
         echo "FAIL  (src fetch)"; return 1
       fi
@@ -141,5 +162,10 @@ run_case() {
 }
 
 for case_file in "$@"; do
+  # Case files are sourced into this shell: clear every knob first so one
+  # case cannot inherit another's configuration.
+  unset NAME VERSION URL REPO BRANCH KIND LOCK PACKAGE_DIR SUBMODULES \
+    AUTO_INSTALL_PEERS NESTED_VENDOR BUILD_SCRIPT NPM_LOCKFILE NPM_REGISTRY \
+    NPM_DEPS_HASH PNPM_DEPS_HASH
   run_case "$case_file" || true
 done
