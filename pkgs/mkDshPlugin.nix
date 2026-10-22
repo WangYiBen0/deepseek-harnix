@@ -108,12 +108,11 @@
 
   # Whether pnpm may auto-install missing peer dependencies while building.
   # dsh supplies peers (cordis and friends) through its runtime resolver, so
-  # the default is false — a plugin must not bundle a second shared
-  # instance. If the plugin's lockfile was generated with autoInstallPeers
-  # enabled, pnpm fails with ERR_PNPM_LOCKFILE_CONFIG_MISMATCH: either set
-  # this to true (the plugin will bundle its peers) or regenerate the
-  # lockfile with `autoInstallPeers: false` in pnpm-workspace.yaml.
-  autoInstallPeers ? false,
+  # bundling a second shared instance is undesirable — but a frozen install
+  # also fails with ERR_PNPM_LOCKFILE_CONFIG_MISMATCH when this disagrees
+  # with the plugin's lockfile. `null` (the default) follows the lockfile and
+  # falls back to false when the lock records no setting.
+  autoInstallPeers ? null,
 
   # Extra `npm ci` flags for the npm path. Defaults to --legacy-peer-deps so
   # peer dependencies (cordis, @deepseek-ai/*) are left to the dsh runtime
@@ -215,6 +214,14 @@ let
           if (fs.existsSync(path.join(lockRoot, file))) { lockfile = name; break; }
         }
         const count = (deps) => deps ? Object.keys(deps).length : 0;
+        // pnpm records the settings a lockfile was created with; a frozen
+        // install fails if our configuration disagrees.
+        let pnpmAutoInstallPeers = null;
+        if (lockfile === "pnpm") {
+          const lock = fs.readFileSync(path.join(lockRoot, "pnpm-lock.yaml"), "utf8");
+          const m = lock.match(/^\s*autoInstallPeers:\s*(true|false)\s*$/m);
+          if (m) pnpmAutoInstallPeers = m[1] === "true";
+        }
         const result = {
           name: manifest.name,
           version: manifest.version,
@@ -225,6 +232,7 @@ let
           dependencyCount: count(manifest.dependencies) + count(manifest.devDependencies),
           // runtime only: what consumers of a published tarball need
           runtimeDependencyCount: count(manifest.dependencies),
+          pnpmAutoInstallPeers,
         };
         fs.writeFileSync(out, JSON.stringify(result, null, 2));
       ' "$pkg_dir" "$source" "$out"
@@ -233,6 +241,12 @@ let
   manifest = builtins.fromJSON (builtins.readFile manifestDrv);
 
   finalName = if pname != null then pname else manifest.name;
+
+  autoInstallPeersFinal =
+    if autoInstallPeers != null then
+      autoInstallPeers
+    else
+      (manifest.pnpmAutoInstallPeers or null) == true;
 
   # Some upstreams list platform-specific binaries as plain dependencies
   # instead of optionalDependencies; npm then hard-fails with EBADPLATFORM on
@@ -272,7 +286,7 @@ let
       npmFlags
     else
       lib.concatStringsSep " " (
-        lib.optional (manifest.lockfile == "npm" && !autoInstallPeers) "--legacy-peer-deps"
+        lib.optional (manifest.lockfile == "npm" && !autoInstallPeersFinal) "--legacy-peer-deps"
         ++ lib.optional lockNeedsPlatformRelax "--force"
       );
   finalVersion = if version != null then version else manifest.version;
@@ -315,7 +329,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   env =
     lib.optionalAttrs (manifest.lockfile == "pnpm") {
-      pnpm_config_auto_install_peers = if autoInstallPeers then "true" else "false";
+      pnpm_config_auto_install_peers = if autoInstallPeersFinal then "true" else "false";
     }
     // lib.optionalAttrs (npmRegistry != null) {
       npm_config_registry = npmRegistry;
