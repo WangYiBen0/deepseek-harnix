@@ -7,12 +7,15 @@
       "locked": {
         "lastModified": 1790898470,
         "narHash": "sha256-zTwuwezD0w3hpga6a6P8emidzAZFyWqlNeRBlpWOOl8=",
-        "type": "tarball",
-        "url": "https://github.com/hercules-ci/flake-parts/archive/main.tar.gz"
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "024633cd702b10285db5cb19b40ad48d2399ba60",
+        "type": "github"
       },
       "original": {
-        "type": "tarball",
-        "url": "https://github.com/hercules-ci/flake-parts/archive/main.tar.gz"
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
       }
     },
     "home-manager": {
@@ -22,14 +25,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1792098797,
-        "narHash": "sha256-u4DIIZgznEGzByxXrxWCXK19VcMtTBmi/M9gZ7Jk9bM=",
-        "type": "tarball",
-        "url": "https://github.com/nix-community/home-manager/archive/master.tar.gz"
+        "lastModified": 1792668857,
+        "narHash": "sha256-chUrnAqBhBLvXBUsLFxFYBIl8c0GWp06wdjmAMS8l+U=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "cb7de2c7e589afe7531d4832c71ad4df144624ea",
+        "type": "github"
       },
       "original": {
-        "type": "tarball",
-        "url": "https://github.com/nix-community/home-manager/archive/master.tar.gz"
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "type": "github"
       }
     },
     "nixpkgs": {

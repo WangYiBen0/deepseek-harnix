@@ -5,9 +5,9 @@
     # Tarball pins resolve without the GitHub REST API; flake.lock pins the
     # content hash.
     nixpkgs.url = "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz";
-    flake-parts.url = "https://github.com/hercules-ci/flake-parts/archive/main.tar.gz";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     home-manager = {
-      url = "https://github.com/nix-community/home-manager/archive/master.tar.gz";
+      url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
