@@ -113,6 +113,11 @@
   # lockfile with `autoInstallPeers: false` in pnpm-workspace.yaml.
   autoInstallPeers ? false,
 
+  # Extra `npm ci` flags for the npm path. Defaults to --legacy-peer-deps so
+  # peer dependencies (cordis, @deepseek-ai/*) are left to the dsh runtime
+  # instead of being resolved against the registry.
+  npmFlags ? null,
+
   # Static compatibility gate: a node-semver range the plugin supports,
   # checked against the harness version at evaluation time wherever the
   # plugin is wired in (package-set `withPlugins`, module plugin lists).
@@ -214,6 +219,48 @@ let
   manifest = builtins.fromJSON (builtins.readFile manifestDrv);
 
   finalName = if pname != null then pname else manifest.name;
+
+  # Some upstreams list platform-specific binaries as plain dependencies
+  # instead of optionalDependencies; npm then hard-fails with EBADPLATFORM on
+  # any other platform. Detect that case in the lockfile and only then relax
+  # the platform check.
+  npmLockData =
+    if hasRegistry && npmLockfile != null then
+      builtins.fromJSON (builtins.readFile npmLockfile)
+    else if !hasRegistry && manifest.lockfile == "npm" then
+      builtins.fromJSON (builtins.readFile (rawSrc + "/package-lock.json"))
+    else
+      null;
+
+  nodePlatform =
+    {
+      "x86_64-linux" = { cpu = "x64"; os = "linux"; };
+      "aarch64-linux" = { cpu = "arm64"; os = "linux"; };
+      "x86_64-darwin" = { cpu = "x64"; os = "darwin"; };
+      "aarch64-darwin" = { cpu = "arm64"; os = "darwin"; };
+    }
+    .${stdenv.hostPlatform.system} or null;
+
+  lockNeedsPlatformRelax =
+    npmLockData != null
+    && nodePlatform != null
+    && lib.any (
+      entry:
+      !(entry.optional or false)
+      && (
+        (entry ? cpu && !(builtins.elem nodePlatform.cpu entry.cpu))
+        || (entry ? os && !(builtins.elem nodePlatform.os entry.os))
+      )
+    ) (lib.attrValues (npmLockData.packages or { }));
+
+  npmFlagsFinal =
+    if npmFlags != null then
+      npmFlags
+    else
+      lib.concatStringsSep " " (
+        lib.optional (manifest.lockfile == "npm" && !autoInstallPeers) "--legacy-peer-deps"
+        ++ lib.optional lockNeedsPlatformRelax "--force"
+      );
   finalVersion = if version != null then version else manifest.version;
 
   # Directory the package manager operates in, relative to the source root.
@@ -265,6 +312,8 @@ stdenv.mkDerivation (finalAttrs: {
   preBuild = lib.optionalString (npmRegistry != null) ''
     printf 'registry=%s\n' "$npm_config_registry" > .npmrc
   '';
+
+  npmFlags = npmFlagsFinal;
 
   pnpmRoot = if packageDir != null then packageDir else null;
 

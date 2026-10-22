@@ -55,6 +55,12 @@ run_case() {
       if [ -n "${NPM_LOCKFILE:-}" ]; then
         args="$args npmLockfile = ./$NPM_LOCKFILE;"
       fi
+      if [ -n "${NPM_REGISTRY:-}" ]; then
+        args="$args npmRegistry = \"$NPM_REGISTRY\";"
+      fi
+      if [ -n "${NPM_DEPS_HASH:-}" ]; then
+        args="$args npmDepsHash = \"$NPM_DEPS_HASH\";"
+      fi
       ;;
     src)
       local commit src_hash deps_hash fetcher_src
@@ -68,7 +74,7 @@ run_case() {
         if ! deps_hash=$(sha_of "pkgs.fetchPnpmDeps { pname = \"dsh-plugin-test\"; version = \"0\"; src = $(src_fetcher "$src_hash"); pnpm = pkgs.pnpm_11; fetcherVersion = 4; hash = \"\"; }"); then
           echo "FAIL  (pnpm deps)"; return 1
         fi
-        args="src = $(src_fetcher "$src_hash"); pnpmDepsHash = \"$deps_hash\";"
+        args="source = $(src_fetcher "$src_hash"); pnpmDepsHash = \"$deps_hash\";"
         if [ "$AUTO_INSTALL_PEERS" = "true" ]; then
           args="$args autoInstallPeers = true;"
         fi
@@ -79,18 +85,41 @@ run_case() {
         if ! deps_hash=$(sha_of "pkgs.fetchNpmDeps { pname = \"dsh-plugin-test\"; version = \"0\"; src = $(src_fetcher "$src_hash"); hash = \"\"; }"); then
           echo "FAIL  (npm deps)"; return 1
         fi
-        args="src = $(src_fetcher "$src_hash"); npmDepsHash = \"$deps_hash\";"
+        args="source = $(src_fetcher "$src_hash"); npmDepsHash = \"$deps_hash\";"
       fi
       ;;
   esac
 
-  if timeout 3000 nix build -L --impure --no-link --expr "
-      let pkgs = import <nixpkgs> {}; in
-      pkgs.callPackage ./pkgs/mkDshPlugin.nix ({ source = null; } // { $args })
-    " > "$log" 2>&1; then
-    local out
-    out=$(grep -oP '/nix/store/\S+' "$log" | head -1 | sed 's|/nix/store/[^-]*-||')
-    echo "PASS  $out"
+  local expr="let pkgs = import <nixpkgs> {}; in
+      pkgs.callPackage ./pkgs/mkDshPlugin.nix ({ source = null; } // { $args })"
+
+  # First attempt may fail on a missing fixed-output hash; the mismatch
+  # message carries the real digest, so bootstrap it and retry once.
+  if ! timeout 3000 nix build -L --impure --no-link --expr "$expr" > "$log" 2>&1; then
+    local got
+    got=$(grep -aoP 'got:\s+\Ksha256-[A-Za-z0-9+/=]+' "$log" | tail -1)
+    if [ -n "$got" ]; then
+      if grep -q 'npm-deps' "$log"; then
+        args="$args npmDepsHash = \"$got\";"
+      elif grep -q 'pnpm-deps' "$log"; then
+        args="$args pnpmDepsHash = \"$got\";"
+      fi
+      expr="let pkgs = import <nixpkgs> {}; in
+      pkgs.callPackage ./pkgs/mkDshPlugin.nix ({ source = null; } // { $args })"
+      echo "      (bootstrapped deps hash, retrying)"
+    fi
+  fi
+
+  local link=".prefetch/out-$safe"
+  rm -f "$link"
+  if timeout 3000 nix build -L --impure --out-link "$link" --expr "$expr" > "$log" 2>&1; then
+    local out pkg_ok
+    out=$(readlink -f "$link")
+    pkg_ok=no
+    if [ -f "$out/package.json" ] && grep -q '"dsh"' "$out/package.json"; then
+      pkg_ok=yes
+    fi
+    echo "PASS  ${out##*/}  (plugin-ok=$pkg_ok)"
     return 0
   fi
   local reason
