@@ -321,7 +321,6 @@ let
     {
       "x86_64-linux" = { cpu = "x64"; os = "linux"; };
       "aarch64-linux" = { cpu = "arm64"; os = "linux"; };
-      "x86_64-darwin" = { cpu = "x64"; os = "darwin"; };
       "aarch64-darwin" = { cpu = "arm64"; os = "darwin"; };
     }
     .${stdenv.hostPlatform.system} or null;

@@ -1,8 +1,6 @@
-{ lib, flakelib, inputs, ... }:
+{ lib, flakelib, inputs, config, ... }:
 
 let
-  # Package-set data evaluates for the requesting system.
-  currentSystem = builtins.currentSystem or "x86_64-linux";
   pkgsFor = system: inputs.nixpkgs.legacyPackages.${system};
   catalogFor = pkgs: import ../pkgs/dsh-plugins.nix { inherit pkgs; };
 
@@ -49,9 +47,16 @@ in
     # Every entry below is a thunk: `dshPackageSet` is a function, and the
     # attrset is built by mapping it over the version list, so referencing one
     # version evaluates one release — never the whole catalogue.
-    legacyPackages.${currentSystem} =
+    #
+    # One entry per declared system, not just the machine doing the
+    # evaluating: `nix flake check` (and the CI job that reviews the macOS
+    # outputs on Linux) has to be able to read the attribute set for a system
+    # it is not running on. Each system's `pkgs` is still only forced when
+    # something asks for it.
+    legacyPackages = lib.genAttrs config.systems (
+      system:
       let
-        pkgs = pkgsFor currentSystem;
+        pkgs = pkgsFor system;
       in
       {
         dshPackageSet = packageSetFor pkgs;
@@ -65,7 +70,8 @@ in
         );
 
         dshPlugins = catalogFor pkgs;
-      };
+      }
+    );
   };
 
   perSystem =

@@ -43,7 +43,10 @@ $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNam
 | `systems` entry | Status |
 | --- | --- |
 | `x86_64-linux`, `aarch64-linux` | built and exercised in CI: packages, checks, end-to-end plugin build |
-| `aarch64-darwin`, `x86_64-darwin` | evaluated in CI on every push; same package definition, same plugin builder, but nothing is built or run — there is no macOS runner |
+| `aarch64-darwin` | evaluated in CI on every push; same package definition, same plugin builder, but nothing is built or run — there is no macOS runner |
+
+Intel Macs are not listed: current nixpkgs dropped `x86_64-darwin`, so evaluating that system aborts
+before any of this flake's code runs.
 
 Two things are Linux-only and are the only platform branches in the tree:
 

@@ -44,7 +44,7 @@ jobs:
       - name: Evaluate the macOS outputs
         run: |
           set -euo pipefail
-          for system in aarch64-darwin x86_64-darwin; do
+          for system in aarch64-darwin; do
             echo "── $system"
             nix eval ".#packages.$system" --apply builtins.attrNames
             nix eval ".#legacyPackages.$system.dshPackageSets" --apply builtins.attrNames
