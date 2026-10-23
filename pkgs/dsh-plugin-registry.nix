@@ -26,7 +26,7 @@ let
   metaOf =
     plugin:
     let
-      m = builtins.fromJSON (builtins.readFile plugin.passthru.manifest);
+      m = plugin.passthru.manifestInfo;
     in
     {
       name = m.name;

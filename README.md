@@ -38,6 +38,21 @@ $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNam
 [ "0.2.1-alpha.3" "0.2.1-rc.2" "latest" "latestAlpha" "latestRc" ]
 ```
 
+## Platforms
+
+| `systems` entry | Status |
+| --- | --- |
+| `x86_64-linux`, `aarch64-linux` | built and exercised in CI: packages, checks, end-to-end plugin build |
+| `aarch64-darwin`, `x86_64-darwin` | evaluated in CI on every push; same package definition, same plugin builder, but nothing is built or run — there is no macOS runner |
+
+Two things are Linux-only and are the only platform branches in the tree:
+
+- the runtime wrapper adds `bubblewrap` to `PATH` on Linux only (macOS has
+  no namespace sandbox; the wrapper simply ships without it),
+- `programs.dsh.services.web` is a systemd user unit, so it is a no-op on
+  Darwin. The package, profiles, plugin building and the CLI are
+  platform-independent.
+
 `dshPackageSets` keys are the exact version strings plus channel shortcuts:
 `latest` (newest overall) and `latest<Channel>` — `latestStable`, `latestRc`,
 `latestBeta`, `latestAlpha` — each present only when that channel has a
@@ -409,3 +424,7 @@ and the NixOS/HM modules in `modules/`.
 | `modules/profile-sync.nix` | store template → writable profile directory sync |
 | `scripts/prefetch-dsh-version.sh` | hash computation for one release |
 | `scripts/merge-versions.py` | versions.json merge helper |
+
+## Powered by dsh
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

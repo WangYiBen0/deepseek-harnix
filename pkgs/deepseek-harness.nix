@@ -205,10 +205,11 @@ stdenv.mkDerivation (finalAttrs: {
     makeBinaryWrapper ${nodejs_24}/bin/node $out/bin/dsh \
       --add-flags "--expose-internals $out/libexec/dsh/apps/cli/lib/bin.js" \
       --prefix PATH : ${
-        lib.makeBinPath [
-          bubblewrap
-          nodejs_24
-        ]
+        lib.makeBinPath (
+          # Linux namespaces are what the sandbox uses; macOS has no
+          # equivalent, so the wrapper simply ships without it there.
+          lib.optionals stdenv.hostPlatform.isLinux [ bubblewrap ] ++ [ nodejs_24 ]
+        )
       }:$out/bin
 
     # ── Shell completions ─────────────────────────────────────────────────────
@@ -324,6 +325,8 @@ stdenv.mkDerivation (finalAttrs: {
     platforms = [
       "aarch64-linux"
       "x86_64-linux"
+      "aarch64-darwin"
+      "x86_64-darwin"
     ];
   };
 })

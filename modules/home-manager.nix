@@ -34,7 +34,7 @@ in
       }
     );
 
-    systemd.user.services.dsh-web = lib.mkIf cfg.services.web.enable {
+    systemd.user.services.dsh-web = lib.mkIf (cfg.services.web.enable && pkgs.stdenv.hostPlatform.isLinux) {
       Unit = {
         Description = "DeepSeek Harness (dsh) web UI";
       };

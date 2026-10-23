@@ -66,6 +66,10 @@ in
         login (`default.target`); on NixOS it is gated to {option}`programs.dsh.users`
         with `ConditionUser`, and boot-time start without login needs
         `users.users.<name>.linger = true`.
+
+        Linux only: systemd user units do not exist on Darwin, so enabling
+        this option there is a no-op (the package is still installed and
+        `dsh --profile web` works as before).
       '';
       default = { };
       type = lib.types.submodule {

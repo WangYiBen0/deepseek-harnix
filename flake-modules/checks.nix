@@ -51,18 +51,6 @@
             echo $plugin > $out
           '';
 
-        mkDshPlugin-npm-registry = pkgs.runCommand "dsh-mkplugin-npm-registry-check"
-          { plugin = set.mkDshPlugin {
-              npmName = "ms";
-              npmVersion = "2.1.3";
-              hash = "sha256-9mFuFeUw7VUvnaotPOcZY5R8a8fJjJtk/T5nP9AmIsY=";
-            }; }
-          ''
-            test -f $plugin/package.json
-            grep -q '"name": "ms"' $plugin/package.json
-            echo $plugin > $out
-          '';
-
         # The curated catalog turns into a servable npm registry tree.
         plugin-registry = pkgs.runCommand "dsh-plugin-registry-check"
           {
@@ -154,6 +142,26 @@
               exit 1
             fi
             cp dump.out $out
+          '';
+
+      }
+      # Home Manager's systemd option only exists on Linux, so this check
+      # (which asserts on the generated unit) is Linux-only too.
+      // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        # Reading a registry tarball's metadata is import-from-derivation, and
+        # IFD cannot build a foreign system's derivation — so this check is
+        # defined on Linux only, which keeps `nix flake check` able to evaluate
+        # the Darwin outputs from a Linux machine.
+        mkDshPlugin-npm-registry = pkgs.runCommand "dsh-mkplugin-npm-registry-check"
+          { plugin = set.mkDshPlugin {
+              npmName = "ms";
+              npmVersion = "2.1.3";
+              hash = "sha256-9mFuFeUw7VUvnaotPOcZY5R8a8fJjJtk/T5nP9AmIsY=";
+            }; }
+          ''
+            test -f $plugin/package.json
+            grep -q '"name": "ms"' $plugin/package.json
+            echo $plugin > $out
           '';
 
         home-manager-module =

@@ -179,8 +179,58 @@ let
     else
       source;
 
-  # One cheap import-from-derivation read of the package metadata. Eval cost
-  # is a single runCommand per unique plugin source; Nix caches the result.
+  # A directory `source` is readable at evaluation time, so its metadata needs
+  # no build at all. That matters beyond speed: import-from-derivation cannot
+  # build a foreign system's derivation, so a Darwin evaluation on a Linux
+  # machine would fail on every path-sourced plugin. Keep the field list in
+  # step with the script in `manifestDrv` below.
+  manifestFrom =
+    root: pkgDir:
+    let
+      packageJson = builtins.fromJSON (builtins.readFile (pkgDir + "/package.json"));
+      count = deps: if deps == null then 0 else builtins.length (builtins.attrNames deps);
+      lockfile =
+        if builtins.pathExists (root + "/pnpm-lock.yaml") then
+          "pnpm"
+        else if builtins.pathExists (root + "/package-lock.json") then
+          "npm"
+        else if builtins.pathExists (root + "/yarn.lock") then
+          "yarn"
+        else
+          null;
+      # pnpm records the settings a lockfile was created with; a frozen
+      # install fails if our configuration disagrees.
+      peerValue =
+        if lockfile == "pnpm" then
+          lib.findFirst (m: m != null) null (
+            map (builtins.match "[[:space:]]*autoInstallPeers:[[:space:]]*(true|false).*") (
+              lib.splitString "\n" (builtins.readFile (root + "/pnpm-lock.yaml"))
+            )
+          )
+        else
+          null;
+    in
+    {
+      name = packageJson.name or null;
+      version = packageJson.version or null;
+      description = packageJson.description or "";
+      hasBuildScript = (packageJson.scripts or { }) ? build;
+      inherit lockfile;
+      dependencyCount = count (packageJson.dependencies or null) + count (packageJson.devDependencies or null);
+      runtimeDependencyCount = count (packageJson.dependencies or null);
+      pnpmAutoInstallPeers = if peerValue == null then null else builtins.elemAt peerValue 0 == "true";
+    };
+
+  # A plain path is read directly.
+  dirManifestUsable =
+    !hasRegistry
+    && builtins.isPath source
+    && builtins.pathExists (
+      if packageDir != null then source + "/${packageDir}/package.json" else source + "/package.json"
+    );
+
+  # Import-from-derivation read of the package metadata for sources that
+  # cannot be read directly (fetched store paths, registry tarballs)
   manifestDrv = runCommand "dsh-plugin-manifest-${lib.strings.sanitizeDerivationName (
     if hasRegistry then "${npmName}-${npmVersion}" else (baseNameOf (toString source))
   )}"
@@ -238,7 +288,14 @@ let
       ' "$pkg_dir" "$source" "$out"
     '';
 
-  manifest = builtins.fromJSON (builtins.readFile manifestDrv);
+  manifest =
+    if dirManifestUsable then
+      manifestFrom source (if packageDir != null then source + "/${packageDir}" else source)
+    else
+      # A registry tarball has to be unpacked before its package.json can be
+      # read, which only a build can do (`fetchTarball` hashes the unpacked
+      # tree, not the tarball we pinned).
+      builtins.fromJSON (builtins.readFile manifestDrv);
 
   finalName = if pname != null then pname else manifest.name;
 
@@ -498,7 +555,10 @@ stdenv.mkDerivation (finalAttrs: {
     npmName = finalName;
     npmVersion = finalVersion;
     isDshPlugin = true;
+    # The parsed metadata; `manifest` is the derivation that produced it, kept
+    # for callers that want the raw file.
     manifest = manifestDrv;
+    manifestInfo = manifest;
     inherit dshVersionRange;
   };
 
