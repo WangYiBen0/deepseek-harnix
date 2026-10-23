@@ -1,9 +1,0 @@
-NAME="@deepseek-harness-tui/dsh-tui"
-REPO="ccch1mneyyy/dsh-TUI"
-BRANCH="HEAD"
-KIND=src
-LOCK=pnpm
-SUBMODULES=true
-AUTO_INSTALL_PEERS=true
-NESTED_VENDOR="vendor/dsh-std"
-BUILD_SCRIPT="compile"

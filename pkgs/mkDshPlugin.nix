@@ -316,10 +316,16 @@ assert
     "mkDshPlugin: source package.json has no `version`; pass `version` explicitly";
 assert
   manifest.lockfile != null || npmLockfile != null || (if hasRegistry then manifest.runtimeDependencyCount else manifest.dependencyCount) == 0 || throw ''
-    mkDshPlugin: ${finalName} declares dependencies but ships no lockfile.
-    Offline packaging needs one of pnpm-lock.yaml, package-lock.json, or
-    yarn.lock at the source root. Ask upstream to commit one, or vendor the
-    dependencies and clear dependencyCount by passing a `packageDir`.'';
+    mkDshPlugin: ${finalName} declares dependencies but no lockfile is available.
+    Nix builds without network, so the dependency tree has to be resolved
+    ahead of time — npm/pnpm cannot honour a semver range here.
+    Supply the resolution you already own:
+      * npm:  npmLockfile = ./package-lock.json
+              (any lock you control; `npm install --package-lock-only` in a
+              package.json that lists this plugin generates one)
+      * pnpm: point `source` at the tree whose pnpm-lock.yaml covers the
+              plugin and pass `pnpmDepsHash`
+      * or vendor the dependencies and drop dependencyCount via `packageDir`.'';
 
 stdenv.mkDerivation (finalAttrs: {
   pname = lib.strings.sanitizeDerivationName finalName;

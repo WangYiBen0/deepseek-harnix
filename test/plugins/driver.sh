@@ -7,7 +7,7 @@ export XDG_CACHE_HOME=/tmp/nixcache NIX_CONFIG="eval-cache = false
 connect-timeout = 30
 stalled-download-timeout = 30"
 export NIX_NPM_REGISTRY="https://registry.npmmirror.com/"
-cd /home/w1ngd1nga5ter/Projects/deepseek-harnix
+cd "$(dirname "$0")/../.."
 
 sha_of() {
   local out attempt
