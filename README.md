@@ -24,9 +24,14 @@ $ nix run .#dsh
 $ nix build .#legacyPackages.x86_64-linux.dshPackageSets.latest.deepseek-harness
 $ nix build .#legacyPackages.x86_64-linux.dshPackageSets.latestRc.deepseek-harness
 
-# Build a specific release (same thing as the package below, with plugins)
-$ nix build .#packages.x86_64-linux.deepseek-harness_0.2.1-rc.2
+# Build a specific release. Nothing is pre-instantiated: the package is
+# generated from the version string when it is named, so `packages` stays
+# at O(1) however many releases are packaged.
 $ nix build .#legacyPackages.x86_64-linux.dshPackageSets."0.2.1-rc.2".deepseek-harness
+
+# From Nix code, skip the attrset and call the generator directly
+$ nix eval --impure --raw --expr '((builtins.getFlake (toString ./.))
+    .legacyPackages.x86_64-linux.dshPackage "0.2.1-rc.2").drvPath'
 
 # List packaged releases
 $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
@@ -42,27 +47,30 @@ Flake outputs:
 
 | Output | Contents |
 | --- | --- |
-| `packages.<system>.*` | `default` / `deepseek-harness` (newest release) and `deepseek-harness_<Version>` per release |
+| `packages.<system>.*` | `default` / `deepseek-harness` (newest release) — no per-release packages, so `nix flake check` builds one harness, not one per version |
 | `apps.<system>.*` | `dsh` — run the CLI without installing |
 | `packages.<system>.dsh-plugin-registry` | static npm registry tree built from the curated plugin catalog |
-| `legacyPackages.<system>.dshPackageSets.<version>` | package set per release, keyed by the exact version string |
+| `legacyPackages.<system>.dshPackageSet` | function `version -> package set` (Nix code only; instantiates one release on demand) |
+| `legacyPackages.<system>.dshPackage` | function `version -> deepseek-harness` derivation (Nix code only) |
+| `legacyPackages.<system>.dshPackageSets.<version>` | package set per release, keyed by the exact version string (each entry is a thunk) |
 | `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, … | channel shortcuts (newest per pre-release label) |
 | `legacyPackages.<system>.dshPlugins` | curated plugin catalog (`pkgs/dsh-plugins.nix`) |
 | `lib.mkDshPlugin` | plugin builder, bound to the current system |
 | `overlays.default` | `deepseek-harness`, `mkDshPlugin`, `dshPackageSets` into a pkgs |
-| `nixosModules.default`, `homeManagerModules.default` | declarative profiles and services |
+| `nixosModules.default`, `homeModules.default` | declarative profiles and services |
 | `checks.<system>.*` | `plugin-e2e`, `home-manager-module`, `versions-json` |
 
 Each package set exposes `deepseek-harness` (alias `dsh`), `withPlugins`,
 `mkDshPlugin`, and `version`.
 
 Only names from the flake schema are used at the top level (`packages`,
-`apps`, `checks`, `lib`, `legacyPackages`, `overlays`, `nixosModules`):
-a bespoke output such as `dshPackageSets` makes `nix flake check` print
-`warning: unknown flake output …` and `nix flake show` render it as
-`unknown`, so the non-derivation data lives under `legacyPackages` instead.
-`homeManagerModules` keeps its conventional name (the home-manager
-ecosystem's convention) and is the only remaining non-schema output.
+`apps`, `checks`, `lib`, `legacyPackages`, `overlays`, `nixosModules`,
+`homeModules`): a bespoke output such as `dshPackageSets` makes `nix flake
+check` print `warning: unknown flake output …` and `nix flake show` render
+it as `unknown`, so the non-derivation data lives under `legacyPackages`
+instead. The Home Manager entry point is `homeModules`, which current Nix
+lists in its own flake schema (`flake.cc`) — `homeManagerModules` was the
+wrong name (Nix 2.30+/Lix may still warn on older releases that predate it).
 
 ## Baking in plugins
 
@@ -163,7 +171,7 @@ at startup.
 # Home Manager
 { inputs, pkgs, ... }:
 {
-  imports = [ inputs.deepseek-harnix.homeManagerModules.default ];
+  imports = [ inputs.deepseek-harnix.homeModules.default ];
 
   programs.dsh = {
     enable = true;
@@ -337,35 +345,41 @@ check: it builds through `mkDshPlugin`, is baked into the harness with
 `pluginList`, mounts through a declaratively materialized profile, and the
 check verifies its patch layer takes effect in the running dsh.
 
-## Tested plugins
+## Plugin pinning and dependency locks
 
-`test/plugins/` builds real, published plugins through `mkDshPlugin`
-(`driver.sh` + one case file per plugin):
+No plugin-specific data is committed here — no per-plugin version table and
+no per-plugin lockfile — so nothing about buildability depends on what this
+repository happens to contain. A plugin is pinned entirely at the call site:
+
+| What | Pinned by |
+| --- | --- |
+| the artifact | `hash` of the registry tarball (`npmName` + `npmVersion`) or of the source tree (`source`) |
+| the dependency tree | the lockfile **you** own: `npmLockfile = ./package-lock.json`, or a `source` tree whose `pnpm-lock.yaml` covers the plugin plus `pnpmDepsHash` |
+| the ABI | `dshVersionRange`, checked against the harness version at evaluation time |
+
+`package.json` ranges still mean what they always meant, but they cannot be
+resolved *inside* the build: Nix builds have no network, so npm/pnpm would
+have to walk `^1.2.3` against a registry that is unreachable, and the result
+would have to be hashed anyway. The range therefore applies when **you**
+regenerate the lock, and the lock — not the range — is what the sandbox
+consumes. Plugins that ship their own lockfile, or have no runtime
+dependencies at all, need nothing extra.
+
+For a local compatibility run against published plugins, the cases are
+scratch files under the gitignored `.prefetch/`:
 
 ```console
-$ ./test/plugins/driver.sh test/plugins/cases/*.sh
+$ mkdir -p .prefetch/cases .prefetch/locks
+$ cat > .prefetch/cases/example.sh <<'EOF'
+NAME=dsh-context
+VERSION=0.73.3
+URL=https://registry.npmjs.org/dsh-context/-/dsh-context-0.73.3.tgz
+EOF
+$ ./test/plugins/driver.sh .prefetch/cases/example.sh
+NAME                           PASS
 ```
 
-The suite covers every third-party plugin of a real-world profile and is the
-compatibility contract for the builder:
-
-| Plugin | Version | Path |
-| --- | --- | --- |
-| `@deepseek-harness-tui/dsh-tui` | git `1056fac` | source + submodule + nested pnpm workspace |
-| `@opencode2dsh/dsh-plugin` | 0.3.13 | npm tarball + lockfile |
-| `@michengai/dsh-archive-manager` | 1.1.6 | npm tarball |
-| `@xmanrui/dsh-im` | 5.4.0 | source |
-| `dsh-chat-import` | 0.26.2 | source |
-| `dsh-background-by-model` | 0.9.1 | source |
-| `dsh-free-search` | 0.9.13 | source |
-| `dsh-pocket` | 2.12.0 | source |
-| `dsh-ops` | 0.3.2 | npm tarball |
-| `dshmarket` | 1.66.42 | npm tarball + lockfile |
-| `dsh-context` | 0.73.3 | npm tarball + lockfile |
-| `dsh-tool-normalizer` | 0.5.2 | npm tarball + lockfile |
-| `dsh-whale-widget` | 0.4.2 | npm tarball |
-
-Known limits:
+Known limits of the builder (independent of any fixture):
 
 - a plugin built from **source** compiles against its peers (`@deepseek-ai/*`,
   cordis); `mkDshPlugin` does not inject a dsh installation into
@@ -386,7 +400,7 @@ and the NixOS/HM modules in `modules/`.
 | `lib/default.nix` | internal helpers: release list, version-name sanitizing, `mkDshPackageSet` |
 | `pkgs/deepseek-harness.nix` | the deepseek-harness package (version + hashes parameterized) |
 | `pkgs/mkDshPlugin.nix` | npm/GitHub → dsh plugin package builder |
-| `test/plugins/` | real-plugin compatibility suite (`driver.sh`, `cases/`) |
+| `test/plugins/driver.sh` | generic driver for real-plugin compatibility runs (cases live in `.prefetch/`, never committed) |
 | `pkgs/versions.json` | the release hash list (append-only, action-maintained) |
 | `modules/options.nix` | shared `programs.dsh` options |
 | `modules/nixos.nix` | NixOS module (activation sync, user service) |
