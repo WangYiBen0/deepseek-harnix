@@ -4,44 +4,76 @@ let
   # Package-set data evaluates for the requesting system.
   currentSystem = builtins.currentSystem or "x86_64-linux";
   pkgsFor = system: inputs.nixpkgs.legacyPackages.${system};
-  mkSet = entry: flakelib.mkDshPackageSet (pkgsFor currentSystem) entry;
   catalogFor = pkgs: import ../pkgs/dsh-plugins.nix { inherit pkgs; };
+
+  # The single generator for release-keyed derivations. It takes the version
+  # string, so nothing is instantiated until a caller actually asks for that
+  # version: no attribute set of pre-built packages has to be materialised,
+  # and `nix flake check` / `nix flake show` never walk a growing catalogue.
+  packageSetFor =
+    pkgs: version:
+    let
+      entry = lib.findFirst (release: release.version == version) null flakelib.releases;
+    in
+    if entry == null then
+      throw "deepseek-harnix: unknown dsh release '${version}'. Known versions: ${
+        lib.concatStringsSep ", " (map (release: release.version) flakelib.releases)
+      }"
+    else
+      flakelib.mkDshPackageSet pkgs entry;
 
   upperFirst =
     s: (lib.toUpper (builtins.substring 0 1 s)) + (builtins.substring 1 (builtins.stringLength s) s);
 
   # latestStable / latestRc / latestBeta / latestAlpha — only when the
   # channel has a release.
-  channelSets = lib.listToAttrs (
+  channelSets = pkgs: lib.listToAttrs (
     lib.concatMap (
       channel:
       let
         entry = flakelib.latestOf channel;
       in
       lib.optional (entry != null) (
-        lib.nameValuePair "latest${upperFirst channel}" (mkSet entry)
+        lib.nameValuePair "latest${upperFirst channel}" (flakelib.mkDshPackageSet pkgs entry)
       )
     ) [ "stable" "rc" "beta" "alpha" ]
   );
 in
 {
-  # Per-release package sets and the curated plugin catalog are plain data,
-  # not derivations, so they live under `legacyPackages` — the flake schema
-  # has no slot for them, and inventing a top-level output makes
-  # `nix flake show` render it as "unknown" and flake checkers warn.
-  flake.legacyPackages.${currentSystem} = {
-    dshPackageSets = {
-      latest = mkSet (flakelib.latestOf "any");
-    } // channelSets // lib.listToAttrs (
-      map (entry: lib.nameValuePair entry.version (mkSet entry)) flakelib.releases
-    );
+  flake = {
+    # Per-release package sets and the curated plugin catalog are plain data,
+    # not derivations, so they live under `legacyPackages` — the flake schema
+    # has no slot for them, and inventing a top-level output makes
+    # `nix flake show` render it as "unknown" and flake checkers warn.
+    #
+    # Every entry below is a thunk: `dshPackageSet` is a function, and the
+    # attrset is built by mapping it over the version list, so referencing one
+    # version evaluates one release — never the whole catalogue.
+    legacyPackages.${currentSystem} =
+      let
+        pkgs = pkgsFor currentSystem;
+      in
+      {
+        dshPackageSet = packageSetFor pkgs;
 
-    dshPlugins = catalogFor (pkgsFor currentSystem);
+        dshPackage = version: (packageSetFor pkgs version).deepseek-harness;
+
+        dshPackageSets = {
+          latest = flakelib.mkDshPackageSet pkgs (flakelib.latestOf "any");
+        } // channelSets pkgs // lib.listToAttrs (
+          map (release: lib.nameValuePair release.version (packageSetFor pkgs release.version)) flakelib.releases
+        );
+
+        dshPlugins = catalogFor pkgs;
+      };
   };
 
   perSystem =
     { pkgs, config, ... }:
     {
+      # Only the default release is a real package. Versioned derivations are
+      # generated on demand through `legacyPackages.<system>.dshPackageSet`,
+      # so `packages` stays O(1) no matter how many releases are packaged.
       packages = {
         deepseek-harness = (flakelib.mkDshPackageSet pkgs flakelib.defaultRelease).deepseek-harness;
         default = config.packages.deepseek-harness;
@@ -51,14 +83,7 @@ in
         dsh-plugin-registry = pkgs.callPackage ../pkgs/dsh-plugin-registry.nix {
           plugins = catalogFor pkgs;
         };
-      } // lib.listToAttrs (
-        map (
-          entry:
-          lib.nameValuePair "deepseek-harness_${flakelib.sanitizeVersion entry.version}" (
-            (flakelib.mkDshPackageSet pkgs entry).deepseek-harness
-          )
-        ) flakelib.releases
-      );
+      };
 
       apps = {
         dsh = {
