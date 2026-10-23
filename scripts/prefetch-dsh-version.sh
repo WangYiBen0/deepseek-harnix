@@ -26,7 +26,9 @@ repo=${DSH_REPO#*/}
 # Run the repo-local flake's pinned nixpkgs when available so hashes are
 # computed with the same nixpkgs the flake builds with.
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-if nix flake metadata "$script_dir/.." >/dev/null 2>&1; then
+# --no-update-lock-file: hashing a release must never rewrite the flake's
+# own pins.
+if nix flake metadata --no-update-lock-file "$script_dir/.." >/dev/null 2>&1; then
   nixpkgs_expr="import (builtins.getFlake \"$script_dir/..\").inputs.nixpkgs {}"
 else
   nixpkgs_expr='import <nixpkgs> {}'
@@ -34,7 +36,7 @@ fi
 
 # build_expr <expr> → runs it, prints the store path on success.
 build_expr() {
-  nix build -L --impure --no-link --print-out-paths \
+  nix build -L --impure --no-link --print-out-paths --no-update-lock-file \
     ${NIX_FLAGS:-} --expr "
       let
         pkgs = $nixpkgs_expr;
@@ -43,29 +45,28 @@ build_expr() {
     "
 }
 
-# one_pass <make-expr-cmd> <args...> → real hash, single download.
+# one_pass <make-expr-cmd> <args...> → real hash after a single download.
 # <make-expr-cmd> receives the placeholder hash as its last argument and
-# prints the Nix expression to build. Building with an empty hash runs the
-# fetcher once; the fixed-output failure leaves the produced store path
-# behind, which we then hash directly (no second download).
+# prints the Nix expression to build. Building once with the placeholder
+# makes the fixed-output derivation fail, and Nix reports the hash it
+# actually produced ("got: sha256-…") — which is exactly the value the
+# attribute expects. Older Nix prints a store path instead, so both forms
+# are handled.
 one_pass() {
   local make_expr=$1
   shift
-  local out hash
-  set +e
-  out=$(
-    build_expr "$("$make_expr" "$@" "")" 2>&1 |
-      grep -oP 'got path: */nix/store/\S+' | tail -1 | awk '{print $3}'
-  )
-  set -e
-  if [ -z "$out" ] || [ ! -d "$out" ]; then
-    echo "prefetch: fetch produced no reusable output" >&2
-    build_expr "$("$make_expr" "$@" "$fake_hash")" >&2 || true
-    return 1
-  fi
-  hash=$(nix hash path --sri "$out" 2>/dev/null)
+  local log hash path
+  log=$(build_expr "$("$make_expr" "$@" "$fake_hash")" 2>&1 || true)
+  hash=$(printf '%s\n' "$log" | grep -oP 'got:\s+\Ksha256-[A-Za-z0-9+/=]+' | tail -1)
   if [ -z "$hash" ]; then
-    echo "prefetch: could not hash $out" >&2
+    path=$(printf '%s\n' "$log" | grep -oP 'got path:\s+\K/nix/store/\S+' | tail -1)
+    if [ -n "$path" ] && [ -d "$path" ]; then
+      hash=$(nix hash path --sri "$path" 2>/dev/null)
+    fi
+  fi
+  if [ -z "$hash" ]; then
+    printf '%s\n' "$log" >&2
+    echo "prefetch: could not read the hash out of the fixed-output error" >&2
     return 1
   fi
   printf '%s' "$hash"
@@ -128,8 +129,9 @@ deps_expr() {
         fetcherVersion = 4;
         prePnpmInstall = ''
           printf 'fetch-timeout=60000\nfetch-retries=8\nfetch-retry-factor=2\nnetwork-concurrency=4\n' >> .npmrc
-          if [ -n "${NIX_NPM_REGISTRY:-}" ]; then
-            printf 'registry=%s\n' "$NIX_NPM_REGISTRY" >> .npmrc
+          # the registry lookup happens in the build, not in this script
+          if [ -n "''\${NIX_NPM_REGISTRY:-}" ]; then
+            printf 'registry=%s\n' "\$NIX_NPM_REGISTRY" >> .npmrc
           fi
         '';
         hash = "$hash";
@@ -139,6 +141,11 @@ EOF
 
 fake_hash=sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
+# A version that could not be prefetched must fail the run: the caller
+# appends whatever landed on stdout, so exiting 0 here would turn a broken
+# fetch into a silently empty update.
+failed=""
+
 for version in "$@"; do
   rev="dsh-v${version}"
   commit=""
@@ -147,18 +154,21 @@ for version in "$@"; do
   resolve_commit
   if [ -z "$commit" ]; then
     echo "prefetch: could not resolve commit for ${rev}" >&2
+    failed=1
     continue
   fi
   echo "prefetch: ${rev} -> commit ${commit}" >&2
 
   if ! src_hash=$(one_pass src_expr); then
     echo "prefetch: FAILED src fetch for ${rev}" >&2
+    failed=1
     continue
   fi
   echo "prefetch: srcHash for ${rev}: ${src_hash}" >&2
 
   if ! deps_hash=$(one_pass deps_expr); then
     echo "prefetch: FAILED pnpm deps fetch for ${rev}" >&2
+    failed=1
     continue
   fi
   echo "prefetch: pnpmDepsHash for ${rev}: ${deps_hash}" >&2
@@ -166,3 +176,5 @@ for version in "$@"; do
   printf '{"version":"%s","rev":"%s","commit":"%s","srcHash":"%s","pnpmDepsHash":"%s"}\n' \
     "$version" "$rev" "$commit" "$src_hash" "$deps_hash"
 done
+
+[ -z "$failed" ] || exit 1
