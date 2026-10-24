@@ -1,0 +1,162 @@
+# Keep the pinned dsh inputs in step with upstream.
+#
+# Two things are refreshed on every run:
+#
+#   pkgs/versions.json   append-only release list — a new entry per upstream
+#                        dsh-v* tag that is not listed yet
+#   pkgs/unstable.json   tracking pin for the `unstable` package set — the head
+#                        of upstream's default branch (not append-only)
+#
+# Hashes come from scripts/prefetch-dsh-version.sh (commit-archive fetch plus
+# pnpm dependency store). The result lands as a pull request by default; pass
+# direct_push=true on a workflow_dispatch run to commit straight to the
+# default branch.
+name: Update dsh versions
+
+on:
+  schedule:
+    # Daily, a little after upstream's usual release hours.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      direct_push:
+        description: "Commit directly to the default branch instead of opening a PR"
+        type: boolean
+        default: false
+
+concurrency:
+  group: update-dsh-versions
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  DSH_REPO: deepseek-ai/deepseek-harness
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Runs first because `unstable` moves with every upstream commit, while
+      # releases only appear now and then: a run with no new tags still has
+      # work to do here.
+      - name: Refresh the unstable pin
+        id: unstable
+        run: |
+          set -euo pipefail
+          ./scripts/prefetch-dsh-version.sh --unstable > unstable-entry.json
+          python3 scripts/merge-unstable.py pkgs/unstable.json unstable-entry.json
+          rm unstable-entry.json
+          if git diff --quiet -- pkgs/unstable.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Discover unreleased versions
+        id: discover
+        run: |
+          set -euo pipefail
+          git ls-remote --tags --refs "https://github.com/${DSH_REPO}" 'refs/tags/dsh-v*' |
+            sed 's|.*refs/tags/dsh-v||' | sort -uV > upstream.txt
+
+          jq -r '.versions[].version' pkgs/versions.json | sort -uV > known.txt
+
+          new=$(comm -13 known.txt upstream.txt)
+          if [ -z "$new" ]; then
+            echo "versions=" >> "$GITHUB_OUTPUT"
+            echo "No new dsh releases."
+            exit 0
+          fi
+          new=$(echo "$new" | tr '\n' ' ' | sed 's/ $//')
+          echo "versions=$new" >> "$GITHUB_OUTPUT"
+          echo "New versions: $new"
+
+      - name: Prefetch hashes for new versions
+        if: steps.discover.outputs.versions != ''
+        run: |
+          set -euo pipefail
+          # Hashes are computed with the flake's own pinned nixpkgs (the
+          # script resolves it from this checkout).
+          ./scripts/prefetch-dsh-version.sh ${{ steps.discover.outputs.versions }} > new-entries.jsonl
+          cat new-entries.jsonl
+
+      - name: Merge into pkgs/versions.json
+        if: steps.discover.outputs.versions != ''
+        run: |
+          set -euo pipefail
+          python3 scripts/merge-versions.py pkgs/versions.json new-entries.jsonl
+          jq -e '.versions | length > 0' pkgs/versions.json > /dev/null
+          rm new-entries.jsonl
+
+      # One line naming exactly what moved: Conventional Commits, with the
+      # versions spelled out so the log and the pull request title are
+      # readable without opening the diff.
+      - name: Name the change
+        id: meta
+        if: steps.discover.outputs.versions != '' || steps.unstable.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          subject=""
+          if [ -n "${{ steps.discover.outputs.versions }}" ]; then
+            subject="dsh $(echo ${{ steps.discover.outputs.versions }} | sed 's/ /, /g')"
+          fi
+          if [ "${{ steps.unstable.outputs.changed }}" = "true" ]; then
+            unstable=$(jq -r '"unstable " + .version + " (" + (.commit[0:7]) + ")"' pkgs/unstable.json)
+            subject="${subject:+$subject, }${unstable}"
+          fi
+          echo "title=feat(pkgs): package ${subject}" >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        if: steps.meta.outputs.title != '' && !inputs.direct_push
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/update-dsh-versions
+          delete-branch: true
+          title: ${{ steps.meta.outputs.title }}
+          # The bot is the only author here: nobody reviews or runs this,
+          # and the actor of a scheduled or manually dispatched run is not an
+          # author of the change.
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          body: |
+            Pinned inputs refreshed by `scripts/prefetch-dsh-version.sh`:
+
+            ${{ steps.meta.outputs.title }}
+
+            - `pkgs/versions.json` gains one entry per new upstream
+              `dsh-v*` tag; each becomes a package set and the newest becomes
+              the default `packages.*.deepseek-harness`.
+            - `pkgs/unstable.json` tracks the head of upstream's default
+              branch, which is what `dshPackageSets.unstable` builds.
+          add-paths: |
+            pkgs/versions.json
+            pkgs/unstable.json
+          commit-message: |
+            ${{ steps.meta.outputs.title }}
+
+            Hashes from scripts/prefetch-dsh-version.sh against the upstream
+            dsh-v* tags and the default branch head.
+
+      - name: Push directly
+        if: steps.meta.outputs.title != '' && inputs.direct_push
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          git add pkgs/versions.json pkgs/unstable.json
+          git commit -m "${{ steps.meta.outputs.title }}" \
+            -m "Hashes from scripts/prefetch-dsh-version.sh against the upstream dsh-v* tags and the default branch head."
+          git push

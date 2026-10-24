@@ -1,0 +1,83 @@
+# Eval and build the flake's checks on pushes and PRs. The end-to-end check
+# includes a full deepseek-harness build (~20 minutes); the eval steps fail
+# fast on packaging mistakes.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Evaluate all outputs
+        run: |
+          set -euo pipefail
+          nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
+          nix eval .#packages.x86_64-linux --apply builtins.attrNames
+          nix eval .#checks.x86_64-linux --apply builtins.attrNames
+          nix flake show --legacy
+
+  darwin-eval:
+    runs-on: ubuntu-latest
+    needs: eval
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      # No macOS runner here, so the Darwin outputs are evaluated (which
+      # catches Linux-only references, missing inputs and unsupported
+      # dependencies) but never built.
+      - name: Evaluate the macOS outputs
+        run: |
+          set -euo pipefail
+          for system in aarch64-darwin; do
+            echo "── $system"
+            nix eval ".#packages.$system" --apply builtins.attrNames
+            nix eval ".#legacyPackages.$system.dshPackageSets" --apply builtins.attrNames
+            nix eval ".#checks.$system" --apply builtins.attrNames
+            nix eval --raw ".#packages.$system.deepseek-harness.drvPath"
+            echo
+            nix eval --raw ".#packages.$system.dsh-plugin-registry.drvPath"
+            echo
+          done
+          nix eval ".#homeModules" --apply builtins.attrNames
+          nix eval .#overlays --apply builtins.attrNames
+
+  checks:
+    runs-on: ubuntu-latest
+    needs: eval
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: End-to-end plugin check (builds deepseek-harness)
+        run: nix build -L .#checks.x86_64-linux.plugin-e2e
+      - name: Home Manager module check
+        run: nix build -L .#checks.x86_64-linux.home-manager-module
+      - name: Package version test
+        run: nix build -L .#packages.x86_64-linux.deepseek-harness.passthru.tests.version
+      # `unstable` tracks upstream's default branch, so its two fixed-output
+      # hashes are the ones that go stale. Verify them without paying for the
+      # full compile: the source archive and the pnpm dependency store are
+      # exactly what breaks when that pin is wrong.
+      - name: Unstable pin (source and dependency hashes)
+        run: |
+          nix build -L \
+            .#packages.x86_64-linux.deepseek-harness-unstable.src \
+            .#packages.x86_64-linux.deepseek-harness-unstable.pnpmDeps

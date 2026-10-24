@@ -1,0 +1,17 @@
+{
+  "name": "dsh-test-npm",
+  "version": "1.0.0",
+  "description": "npm-lockfile fixture for mkDshPlugin checks",
+  "license": "MIT",
+  "scripts": {
+    "build": "mkdir -p dist && node -e \"const fs=require('fs');const y=require('js-yaml');fs.writeFileSync('dist/marker.js','export const marker = '+JSON.stringify(Object.keys(y.load(fs.readFileSync('cordis.patch.yml','utf8'))))+';\\n')\""
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}
