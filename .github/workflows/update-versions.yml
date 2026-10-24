@@ -83,7 +83,7 @@ jobs:
         with:
           branch: chore/update-dsh-versions
           delete-branch: true
-          title: "dsh: package new releases"
+          title: "feat(pkgs): package new dsh releases"
           body: |
             New DeepSeek Harness releases appended to `pkgs/versions.json`:
 
@@ -94,7 +94,11 @@ jobs:
             (`dshPackageSets.<version>` / `latest` / `latestRc` / …); the newest becomes
             the default `packages.*.deepseek-harness`.
           add-paths: pkgs/versions.json
-          commit-message: "dsh: package ${{ steps.discover.outputs.versions }}"
+          commit-message: |
+            feat(pkgs): package dsh ${{ steps.discover.outputs.versions }}
+
+            Hashes from scripts/prefetch-dsh-version.sh against the upstream
+            dsh-v* tags.
 
       - name: Push directly
         if: steps.discover.outputs.versions != '' && inputs.direct_push
@@ -103,5 +107,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add pkgs/versions.json
-          git commit -m "dsh: package ${{ steps.discover.outputs.versions }}"
+          git commit -m "feat(pkgs): package dsh ${{ steps.discover.outputs.versions }}" \
+            -m "Hashes from scripts/prefetch-dsh-version.sh against the upstream dsh-v* tags."
           git push
