@@ -1,10 +1,10 @@
 <div align="center">
 
-# deepseek-harnix
+# DeepSeek Harnix
 
 Nix packaging and declarative configuration for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
 
-[English](README.md) | [中文](README.zh.md)
+English | [中文](README.zh.md)
 
 [![CI](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/ci.yml/badge.svg)](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/ci.yml)
 [![Update dsh versions](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/update-versions.yml/badge.svg)](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/update-versions.yml)
@@ -19,13 +19,14 @@ build from npm or any source tree, and **profiles** are managed declaratively.
 
 - **every packaged dsh release** becomes a package set under
   `legacyPackages.<system>.dshPackageSets`, with
-  `latest` / `latestRc` / `latestStable` / … channel shortcuts,
-  overridable with `.override { pluginList = [ … ]; }`,
+  `latest` / `latestRc` / `latestStable` / … channel shortcuts; its
+  `deepseek-harness` is overridable with
+  `.override { pluginList = [ … ]; }`,
 - **`unstable`** builds the pinned head of upstream's default branch
   (`pkgs/unstable.json`), so there is always a set newer than the last
   release,
-- **`mkDshPlugin`** builds an out-of-tree plugin ("bundle") from an npm package
-  or any source tree — no manual metadata,
+- **`mkDshPlugin`** builds an out-of-tree plugin ("bundle") from an npm
+  package or any source tree — no manual metadata,
 - **`pkgs/versions.json`** is an append-only hash list; a GitHub Action appends
   new upstream `dsh-v*` releases automatically,
 - **NixOS / Home Manager modules** manage dsh profiles and their plugin lists
@@ -53,26 +54,31 @@ $ nix eval --impure --raw --expr '((builtins.getFlake (toString ./.))
 # List packaged releases and channels. `nix flake show` cannot help here: it
 # prints derivations, and an attribute set of attribute sets is not one.
 $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
-[ "0.2.1-alpha.3" "0.2.1-rc.2" "latest" "latestAlpha" "latestRc" "unstable" ]
+[ "0.1.0-rc.7" "0.1.0-rc.8" … "0.2.1-rc.2" "0.2.1-rc.3"
+  "latest" "latestAlpha" "latestRc" "unstable" ]
 ```
 
 ## Platforms
 
 | `systems` entry | Status |
 | --- | --- |
-| `x86_64-linux`, `aarch64-linux` | built and exercised in CI: packages, checks, end-to-end plugin build |
-| `aarch64-darwin` | evaluated in CI on every push; same package definition, same plugin builder, but nothing is built or run — there is no macOS runner |
+| `x86_64-linux` | the only system CI builds: packages, every check, the end-to-end plugin build and the NixOS VM test |
+| `aarch64-linux`, `aarch64-darwin` | evaluated in CI on every push (`nix flake check --all-systems`); same package definition, same plugin builder, but nothing is built or run — there is no ARM or macOS runner |
 
 Intel Macs are not listed: current nixpkgs dropped `x86_64-darwin`, so evaluating that system aborts
 before any of this flake's code runs.
 
-Two things are Linux-only and are the only platform branches in the tree:
+Three platform branches exist; only the first two are Linux-only:
 
 - the runtime wrapper adds `bubblewrap` to `PATH` on Linux only (macOS has
   no namespace sandbox; the wrapper simply ships without it),
 - `programs.dsh.services.web` is a systemd user unit, so it is a no-op on
-  Darwin. The package, profiles, plugin building and the CLI are
-  platform-independent.
+  Darwin,
+- the NixOS VM test and the registry-tarball check (which reads a tarball's
+  metadata through import-from-derivation) exist only where they can run.
+
+Everything else — the package, profiles, plugin building and the CLI — is
+platform-independent.
 
 `dshPackageSets` keys are the exact version strings plus channel shortcuts:
 `latest` (newest overall), `unstable` (the pinned branch head) and
@@ -94,10 +100,10 @@ Flake outputs:
 | `legacyPackages.<system>.dshPackageSets.<version>` | package set per release, keyed by the exact version string (each entry is a thunk) |
 | `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.unstable` | channel shortcuts (newest per pre-release label, plus the branch head) |
 | `legacyPackages.<system>.dshPlugins` | curated plugin catalog (`pkgs/dsh-plugins.nix`) |
-| `lib.mkDshPlugin` | plugin builder, bound to the current system |
-| `overlays.default` | `deepseek-harness`, `mkDshPlugin`, `dshPackageSets` into a pkgs |
+| `lib.mkDshPluginFor.<system>` | plugin builder for a named system (pure); `lib.mkDshPlugin` is the impure form |
+| `overlays.default` | `deepseek-harness`, `mkDshPlugin` and `dshPackageSets` (version-keyed only — no `latest`/`unstable` shortcuts) into a pkgs |
 | `nixosModules.default`, `homeModules.default` | declarative profiles and services |
-| `checks.<system>.*` | `plugin-e2e`, `home-manager-module`, `versions-json` |
+| `checks.<system>.*` | ten checks; `plugin-e2e`, `dsh-modules-vm` and `home-manager-module` are the load-bearing ones (see Development) |
 
 Each package set exposes `deepseek-harness` (alias `dsh`), `withPlugins`,
 `mkDshPlugin`, and `version`.
@@ -107,9 +113,12 @@ Only names from the flake schema are used at the top level (`packages`,
 `homeModules`): a bespoke output such as `dshPackageSets` makes `nix flake
 check` print `warning: unknown flake output …` and `nix flake show` render
 it as `unknown`, so the non-derivation data lives under `legacyPackages`
-instead. The Home Manager entry point is `homeModules`, which current Nix
-lists in its own flake schema (`flake.cc`) — `homeManagerModules` was the
-wrong name (Nix 2.30+/Lix may still warn on older releases that predate it).
+instead. The Home Manager entry point is `homeModules`, which upstream Nix
+lists as a known output in its flake schema (`src/nix/flake.cc`) —
+`homeManagerModules` was the wrong name. Lix 2.9x still predates that entry
+and warns `unknown flake output 'homeModules'`; the warning is harmless, the
+output works. Note that `nix flake show` renders every function-valued output
+(`lib`, `homeModules`, `overlays`) as `unknown` on both implementations.
 
 ## Baking in plugins
 
@@ -119,22 +128,27 @@ packages into the installation, so **every profile** can use them without a
 package-manager run and without network access:
 
 ```nix
+# Build a plugin for a named system. A flake output cannot use
+# `builtins.currentSystem` (evaluation is pure), so the system is explicit;
+# inside NixOS/Home Manager just use `pkgs.mkDshPlugin` from the overlay.
 let
-  flake = builtins.getFlake "github:<owner>/deepseek-harnix";
-  mkDshPlugin = flake.lib.mkDshPlugin;
-  sets = flake.legacyPackages.${builtins.currentSystem}.dshPackageSets;
+  flake = builtins.getFlake "github:WangYiBen0/deepseek-harnix";
+  system = "x86_64-linux";
+  mkDshPlugin = flake.lib.mkDshPluginFor.${system};
 in
-sets.latest.deepseek-harness.override {
+(flake.legacyPackages.${system}.dshPackageSets.latest.deepseek-harness).override {
   pluginList = [
     (mkDshPlugin {
-      src = fetchFromGitHub {
+      source = fetchFromGitHub {
         owner = "acme";
         repo = "dsh-plugin-acme";
         tag = "v1.2.3";
         hash = "sha256-…";
       };
-      pnpmDepsHash = "sha256-…"; # first run: keep the default lib.fakeHash
-    })                          # and copy the "got:" hash from the error
+      # First build: leave `pnpmDepsHash = lib.fakeHash;` — the error prints
+      # the real "got:" hash to copy in.
+      pnpmDepsHash = "sha256-…";
+    })
   ];
 }
 ```
@@ -147,10 +161,10 @@ UI's plugin manager).
 
 ```nix
 mkDshPlugin {
-  # One of:
-  src = fetchFromGitHub { … };          # any source tree / fetcher result
-  npmName = "@acme/dsh-plugin-acme";    # or the npm registry, with
-  npmVersion = "1.2.3";                 # required:
+  # One of (exactly one; `source` is the source-tree form):
+  source = fetchFromGitHub { … };       # any source tree / fetcher result
+  npmName = "@acme/dsh-plugin-acme";    # or fetch from the npm registry, with
+  npmVersion = "1.2.3";                 #   the version and the
   hash = "sha256-…";                    #   registry tarball hash
 
   # Optional:
@@ -159,7 +173,13 @@ mkDshPlugin {
   version = "…";                        #   package.json
   pnpmDepsHash = lib.fakeHash;          # deps store hash (pnpm projects)
   npmDepsHash = lib.fakeHash;           # … or npm / yarnDepsHash (yarn)
+  npmLockfile = ./package-lock.json;    # lock for a tarball shipping none
   npmBuildScript = "build";             # also used as pnpmBuildScript
+  npmBuild = false;                     # rebuild a tarball that ships lib/
+  npmRegistry = null;                   # registry override for the build
+  autoInstallPeers = null;              # null = follow the lockfile
+  npmFlags = null;                      # extra `npm ci` flags
+  dshVersionRange = ">=0.2.1-alpha.1 <0.3";  # static compatibility gate
   nestedPnpmDeps = fetchPnpmDeps { … }; # pnpm store for a nested workspace
   nestedPnpmDir = "vendor/dsh-std";     # … and where to point it
   pruneDevDependencies = false;         # drop devDependencies from output
@@ -191,9 +211,12 @@ Behavior:
   instance to every profile plugin, so a plugin must never bundle a second
   cordis.
 
-Accessible as the top-level `mkDshPlugin` (evaluates for the current system),
-as `pkgs.mkDshPlugin` through `overlays.default`, or per package set:
-`legacyPackages.<system>.dshPackageSets.latest.mkDshPlugin`.
+Accessible as `lib.mkDshPluginFor.<system>`, as `pkgs.mkDshPlugin` through
+`overlays.default`, or per package set:
+`legacyPackages.<system>.dshPackageSets.latest.mkDshPlugin`. The unprefixed
+`lib.mkDshPlugin` only works in an impure evaluation (it reads
+`builtins.currentSystem`); in a pure flake evaluation it throws rather than
+guessing a system.
 
 ## Declarative profiles (NixOS / Home Manager)
 
@@ -241,7 +264,7 @@ A closer look, when you want plugins and a patch layer:
 
       # Plugins to install AND activate, in bundle order.
       plugins = [
-        (inputs.deepseek-harnix.mkDshPlugin { src = ./my-plugin; })
+        (pkgs.mkDshPlugin { source = ./my-plugin; })
       ];
       # Plugins to install but leave disabled (declarative equivalent of a
       # disabled plugin row).
@@ -250,11 +273,11 @@ A closer look, when you want plugins and a patch layer:
       # Two ways to own `cordis.patch.yml`, because dsh rewrites it at
       # runtime:
       #
-      #   `patches`     — configuration. Written on every activation, so
-      #                   imperative edits do not survive a rebuild.
+      #   `patches`     — configuration. Written by every activation and by
+      #                   every reset, so imperative edits do not survive.
       #   `seedPatches` — starting content. Written only while the file does
-      #                   not exist, then owned by dsh and by you. Use this
-      #                   when the web UI's model picker manages the file.
+      #                   not exist; a reset then leaves the live file alone.
+      #                   Use this when the web UI's model picker manages it.
       seedPatches = [
         { id = "hmr"; disabled = true; }
       ];
@@ -286,7 +309,9 @@ Notes:
 - `seedPatches` versus `patches`: dsh's web UI, model picker and `dsh plugin`
   rewrite `cordis.patch.yml` at runtime, so a profile whose patch layer is
   live state uses `seedPatches` (declared once, then owned by dsh) rather than
-  `patches` (the declaration, re-applied on every reset).
+  `patches` (the declaration, re-applied on every reset). Both activation and
+  `dsh-config-reset` respect this: a seeded file is only ever created, never
+  overwritten while it exists.
 
 ### Activation creates; `dsh-config-reset` re-syncs
 
@@ -298,7 +323,7 @@ running. Activation and reset are therefore separate operations:
 | | profile missing | profile exists |
 |---|---|---|
 | `nixos-rebuild switch` / `home-manager switch` | created from the store template | **left completely alone**; if the declaration changed, it prints a hint |
-| `dsh-config-reset [name…]` | created | declaration overwritten from the store template; runtime state such as `cordis.yml` survives |
+| `dsh-config-reset [name…]` | created | declaration overwritten from the store template; runtime state such as `cordis.yml` survives, and a `seedPatches` file is left as dsh wrote it |
 
 So a rebuild never discards a live profile, and the way to push a changed
 plugin set or patch layer onto an existing profile is explicit:
@@ -316,12 +341,12 @@ rather than a command that would guess.
 ## Plugin catalog and registry subscription
 
 `pkgs/dsh-plugins.nix` is the curated plugin catalog; the flake exposes it as
-`dshPlugins` and builds it into `dshPluginRegistry` — a **static npm
+`dshPlugins` and builds it into `dsh-plugin-registry` — a **static npm
 registry tree** that dsh's plugin manager can install from (dsh registries
 are npm registries, per its `--registry` handling):
 
 ```console
-$ nix build .#dshPluginRegistry
+$ nix build .#dsh-plugin-registry
 $ cd result && python3 -m http.server 4873
 # then set http://127.0.0.1:4873 as the registry in dsh's plugin manager,
 # or: pnpm --registry http://127.0.0.1:4873 add <plugin>
@@ -330,7 +355,7 @@ $ cd result && python3 -m http.server 4873
 Each package gets an npm metadata document (`index.json` with
 `dist.tarball`/`shasum`/`integrity`) and a tarball; `catalog.json`
 summarizes the list. `registryBaseUrl` is overridable:
-`dshPluginRegistry.override { registryBaseUrl = "https://plugins.example.com"; }`.
+`dsh-plugin-registry.override { registryBaseUrl = "https://plugins.example.com"; }`.
 Point the catalog at your own plugins by editing `pkgs/dsh-plugins.nix`
 (entries are plain `mkDshPlugin` calls).
 
@@ -338,13 +363,17 @@ Point the catalog at your own plugins by editing `pkgs/dsh-plugins.nix`
 
 Catalog entries (and any `mkDshPlugin` call) may declare `dshVersionRange`
 — a node-semver range understood by dsh's own `engines.dsh` admission. The
-flake enforces it **at evaluation time** wherever the plugin meets a harness
+flake enforces it **at evaluation time**, wherever a plugin meets a harness
 version:
 
-- `legacyPackages.<system>.dshPackageSets.<v>.withPlugins [ … ]` / `.deepseek-harness.override { pluginList = …; }`
-  fail to evaluate when a plugin's range does not admit that set's version,
-- the module options fail when a profile plugin does not admit
-  `programs.dsh.package`.
+- `dshPackageSets.<v>.withPlugins [ … ]` fails when a plugin's range does not
+  admit that set's version,
+- `.deepseek-harness.override { pluginList = …; }` fails too — the package
+  itself checks its `pluginList`, so bypassing `withPlugins` does not bypass
+  the gate,
+- the NixOS module asserts, and the profile derivation fails on, a profile
+  plugin that does not admit `programs.dsh.package`. (Home Manager has no
+  `assertions` option, so there the profile derivation is the gate.)
 
 Supported syntax: whitespace/comma-separated `>= > <= < =` comparators plus
 `^` and `~`. Example: `dshVersionRange = ">=0.2.1-alpha.1 <0.3";`.
@@ -448,19 +477,33 @@ Inputs are pinned to a `github:owner/repo` ref plus the `narHash`/`rev`
 recorded in flake.lock — never to a moving `archive/*.tar.gz` URL, whose hash
 changes upstream and breaks every evaluation. Bump with `nix flake update`.
 
-This repository is a git-tracked flake: `nix build .#…` and every other
-installable evaluate the **committed** tree, so uncommitted edits are
-invisible to them — commit (or use a dirty-tree flake ref like
-`git+file://$PWD?…`) before testing. `nix flake check` / CI always run
-against a checkout, so committed state is what ships.
+This is a git-tracked flake, so its inputs are the files Git *tracks*. An
+uncommitted change to a tracked file **is** picked up — into a `-dirty` copy,
+which Nix tells you about (`warning: Git tree … is dirty`) — while an
+**untracked** file is not copied in at all. That asymmetry matters in both
+directions: a dirty tree silently changes what you are building, and a new
+file that was never `git add`ed silently does not exist for Nix. `git add`
+before building, and release from a clean commit.
 
 ```console
 $ nix build .#checks.x86_64-linux.plugin-e2e   # end-to-end: dsh + Nix-built
                                                # plugin + declarative profile
-$ nix flake check                              # heavy: builds all packages
+$ nix flake check --all-systems                # every check on the native
+                                               # system; evaluate all the rest
 ```
 
-`test/minimal-plugin/` is a patch-only bundle fixture used by the end-to-end
+Checks worth knowing:
+
+| Check | What it proves |
+| --- | --- |
+| `plugin-e2e` | a Nix-built plugin, baked in with `pluginList`, mounts through a declarative profile and its patch layer applies in a real `dsh` |
+| `dsh-modules-vm` | a real NixOS VM: `$HOME` expansion, a seeded patch layer surviving a rebuild, `dsh-config-reset` semantics, and an actual agent turn against a fake model endpoint |
+| `home-manager-module` | the generated activation script and systemd unit |
+| `mkDshPlugin-npm`, `mkDshPlugin-pnpm-workspace`, `mkDshPlugin-npm-registry` | the three packaging paths (npm lockfile, pnpm workspace member, registry tarball) |
+| `range-eval` | `dshVersionRange` arithmetic, and that an incompatible plugin is rejected |
+| `plugin-registry`, `unstable-pin`, `versions-json` | the registry tree, the moving `unstable` pin, and the release list |
+
+`test/minimal-plugin/` is the patch-only bundle fixture used by the end-to-end
 check: it builds through `mkDshPlugin`, is baked into the harness with
 `pluginList`, mounts through a declaratively materialized profile, and the
 check verifies its patch layer takes effect in the running dsh.
@@ -516,17 +559,23 @@ and the NixOS/HM modules in `modules/`.
 | Path | Purpose |
 | --- | --- |
 | `flake.nix` | inputs + `flake-parts.lib.mkFlake`, nothing else |
-| `flake-modules/` | output wiring: `packages.nix` (packages, apps, package sets), `overlays.nix`, `checks.nix`, `modules.nix` (NixOS/HM modules, top-level `mkDshPlugin`), `lib.nix` (exposes `lib/` as module args) |
+| `flake-modules/` | output wiring: `packages.nix` (packages, apps, package sets), `overlays.nix`, `checks.nix`, `modules.nix` (NixOS/HM modules, `lib.mkDshPlugin`), `lib.nix` (exposes `lib/` as module args) |
 | `lib/default.nix` | internal helpers: release list, version-name sanitizing, `mkDshPackageSet` |
 | `pkgs/deepseek-harness.nix` | the deepseek-harness package (version + hashes parameterized) |
 | `pkgs/mkDshPlugin.nix` | npm/GitHub → dsh plugin package builder |
 | `test/plugins/driver.sh` | generic driver for real-plugin compatibility runs (cases live in `.prefetch/`, never committed) |
+| `test/vm-modules.nix` | NixOS VM test behind `checks.<system>.dsh-modules-vm` |
+| `test/minimal-plugin/`, `test/npm-plugin/`, `test/workspace-plugin/` | fixtures for the three `mkDshPlugin` packaging paths |
+| `pkgs/dsh-plugin-registry.nix`, `pkgs/dsh-registry-writer.js` | static npm registry tree for the curated catalog |
+| `pkgs/completions/` | bash/zsh/fish scripts plus the check that drives each shell |
 | `pkgs/versions.json` | the release hash list (append-only, action-maintained) |
 | `pkgs/unstable.json` | the moving pin for `dshPackageSets.unstable` (action-maintained) |
 | `modules/options.nix` | shared `programs.dsh` options |
 | `modules/nixos.nix` | NixOS module (activation sync, user service) |
 | `modules/home-manager.nix` | Home Manager module (activation sync, user service) |
 | `modules/dsh-profile.nix` | profile-directory template derivation builder |
+| `modules/dsh-profile-writer.js` | writes a profile's `package.json`, `cordis.patch.yml` and `pnpm-workspace.yaml` |
+| `modules/profile-range-assertions.nix` | `dshVersionRange` assertion for the NixOS module |
 | `modules/profile-sync.nix` | store template → writable profile directory sync |
 | `scripts/prefetch-dsh-version.sh` | hash computation for a release (`--unstable` for the branch head) |
 | `scripts/merge-versions.py` | versions.json merge helper |

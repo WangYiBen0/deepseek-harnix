@@ -1,15 +1,15 @@
 <div align="center">
 
-# deepseek-harnix
+# DeepSeek Harnix
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的 Nix 打包与声明式配置。
 
-[English](README.md) | [中文](README.zh.md)
+[English](README.md) | 中文
 
 [![CI](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/ci.yml/badge.svg)](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/ci.yml)
 [![Update dsh versions](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/update-versions.yml/badge.svg)](https://github.com/WangYiBen0/deepseek-harnix/actions/workflows/update-versions.yml)
 [![Built with Nix](https://img.shields.io/badge/Built_With-Nix-5277C3.svg?logo=nixos&labelColor=73C3D5)](https://nixos.org)
-[![platforms](https://img.shields.io/badge/platforms-x86__64--linux_%7C_aarch64--linux_%7C_aarch64--darwin-informational)](#platforms)
+[![platforms](https://img.shields.io/badge/platforms-x86__64--linux_%7C_aarch64--linux_%7C_aarch64--darwin-informational)](#平台)
 [![powered by dsh](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 
 **每一个已打包的 dsh 发行版**都会成为一个包集合，**树外插件**
@@ -19,8 +19,8 @@
 
 - **每一个已打包的 dsh 发行版**都会成为
   `legacyPackages.<system>.dshPackageSets` 下的一个包集合，并提供
-  `latest` / `latestRc` / `latestStable` / … 等 channel 快捷方式，
-  可用 `.override { pluginList = [ … ]; }` 覆盖，
+  `latest` / `latestRc` / `latestStable` / … 等 channel 快捷方式；其
+  `deepseek-harness` 可用 `.override { pluginList = [ … ]; }` 覆盖，
 - **`unstable`** 构建上游默认分支的固定头部（`pkgs/unstable.json`），
   因此总有一个比最新发行版更新的包集合，
 - **`mkDshPlugin`** 可从 npm 包或任意源码树构建树外插件（"bundle"）——
@@ -33,44 +33,48 @@
 ## 快速开始
 
 ```console
-# Run the latest packaged release
+# 运行最新的已打包发行版
 $ nix run .#dsh
 
-# A channel's newest — these are real packages, so `nix flake show` lists them
+# 某个 channel 的最新版——它们是真实存在的包，所以 `nix flake show` 能列出
 $ nix build .#deepseek-harness-rc
 $ nix build .#deepseek-harness-unstable      # upstream's default branch head
 
-# Build a specific release. Nothing is pre-instantiated: the package is
-# generated from the version string when it is named, so `packages` never
-# grows with the release list.
+# 构建指定发行版。没有任何东西被预先实例化：只有在点名该版本时才会从
+# 版本字符串生成包，因此 `packages` 不会随发行版列表增长。
 $ nix build .#legacyPackages.x86_64-linux.dshPackageSets."0.2.1-rc.2".deepseek-harness
 
-# From Nix code, skip the attrset and call the generator directly
+# 在 Nix 代码里可以跳过 attrset，直接调用生成器
 $ nix eval --impure --raw --expr '((builtins.getFlake (toString ./.))
     .legacyPackages.x86_64-linux.dshPackage "0.2.1-rc.2").drvPath'
 
-# List packaged releases and channels. `nix flake show` cannot help here: it
-# prints derivations, and an attribute set of attribute sets is not one.
+# 列出已打包的发行版与 channel。`nix flake show` 在这里帮不上忙：它只打印
+# derivation，而 attribute set 套 attribute set 并不是 derivation。
 $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
-[ "0.2.1-alpha.3" "0.2.1-rc.2" "latest" "latestAlpha" "latestRc" "unstable" ]
+[ "0.1.0-rc.7" "0.1.0-rc.8" … "0.2.1-rc.2" "0.2.1-rc.3"
+  "latest" "latestAlpha" "latestRc" "unstable" ]
 ```
 
 ## 平台
 
 | `systems` 条目 | 状态 |
 | --- | --- |
-| `x86_64-linux`, `aarch64-linux` | 在 CI 中构建并演练：packages、checks、端到端插件构建 |
-| `aarch64-darwin` | 每次 push 都在 CI 中求值；同样的包定义、同样的插件构建器，但既不构建也不运行任何东西——没有 macOS runner |
+| `x86_64-linux` | CI 唯一会构建的系统：packages、全部 checks、端到端插件构建以及 NixOS VM 测试 |
+| `aarch64-linux`, `aarch64-darwin` | 每次 push 都在 CI 中求值（`nix flake check --all-systems`）；同样的包定义、同样的插件构建器，但既不构建也不运行任何东西——没有 ARM 或 macOS runner |
 
 未列出 Intel Mac：当前 nixpkgs 已移除 `x86_64-darwin`，因此对该系统求值会在
 这个 flake 的任何代码运行之前就中止。
 
-有两处仅限 Linux，也是代码树中仅有的平台分支：
+代码树中有三处平台分支，其中只有前两处仅限 Linux：
 
 - 运行时 wrapper 仅在 Linux 上把 `bubblewrap` 加入 `PATH`（macOS 没有
   namespace sandbox；wrapper 干脆不带它），
 - `programs.dsh.services.web` 是 systemd 用户单元，因此在 Darwin 上是
-  空操作。包、profile、插件构建和 CLI 都与平台无关。
+  空操作，
+- NixOS VM 测试与 registry tarball 检查（通过 import-from-derivation
+  读取 tarball 元数据）只在其能运行的地方存在。
+
+除此之外——包、profile、插件构建和 CLI——都与平台无关。
 
 `dshPackageSets` 的键是精确的版本字符串加上 channel 快捷方式：
 `latest`（总体最新）、`unstable`（固定的分支头部）以及 `latest<Channel>`——
@@ -91,10 +95,10 @@ Flake 输出：
 | `legacyPackages.<system>.dshPackageSets.<version>` | 每个发行版一个包集合，以精确版本字符串为键（每个条目是一个 thunk） |
 | `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.unstable` | channel 快捷方式（每个预发布标签的最新版，以及分支头部） |
 | `legacyPackages.<system>.dshPlugins` | 精选插件目录（`pkgs/dsh-plugins.nix`） |
-| `lib.mkDshPlugin` | 插件构建器，绑定到当前系统 |
-| `overlays.default` | 将 `deepseek-harness`、`mkDshPlugin`、`dshPackageSets` 注入 pkgs |
+| `lib.mkDshPluginFor.<system>` | 针对指定系统的插件构建器（纯求值可用）；`lib.mkDshPlugin` 是 impure 形式 |
+| `overlays.default` | 将 `deepseek-harness`、`mkDshPlugin` 和 `dshPackageSets`（仅按版本为键，没有 `latest`/`unstable` 快捷方式）注入 pkgs |
 | `nixosModules.default`, `homeModules.default` | 声明式 profile 和服务 |
-| `checks.<system>.*` | `plugin-e2e`, `home-manager-module`, `versions-json` |
+| `checks.<system>.*` | 共十个 check；其中 `plugin-e2e`、`dsh-modules-vm`、`home-manager-module` 是关键（见「开发」） |
 
 每个包集合都暴露 `deepseek-harness`（别名 `dsh`）、`withPlugins`、
 `mkDshPlugin` 和 `version`。
@@ -104,9 +108,12 @@ Flake 输出：
 `homeModules`）：像 `dshPackageSets` 这样的自定义输出会让 `nix flake
 check` 打印 `warning: unknown flake output …`，并让 `nix flake show` 将其
 显示为 `unknown`，因此非 derivation 数据改为放在 `legacyPackages` 下。
-Home Manager 的入口是 `homeModules`，当前 Nix 在它自己的 flake schema
-（`flake.cc`）中列出了它——`homeManagerModules` 是错误的名称
-（Nix 2.30+/Lix 在早于它的旧版本上可能仍会警告）。
+Home Manager 的入口是 `homeModules`，上游 Nix 在它的 flake schema
+（`src/nix/flake.cc`）中把 `homeModules` 列为已知输出——
+`homeManagerModules` 是错误的名称。Lix 2.9x 仍早于该条目，会警告
+`unknown flake output 'homeModules'`；警告无害，输出本身可用。另外要注意，
+两种实现下 `nix flake show` 都会把函数型输出（`lib`、`homeModules`、
+`overlays`）显示为 `unknown`。
 
 ## 预置插件
 
@@ -115,22 +122,27 @@ dsh 从两个锚点加载插件（"bundle"）：先是正在运行的安装，�
 **每个 profile** 都能使用它们，无需运行包管理器，也无需网络访问：
 
 ```nix
+# 为指定系统构建插件。flake 输出是纯求值，不能用 builtins.currentSystem，
+# 所以系统必须写明；在 NixOS / Home Manager 里直接用 overlay 提供的
+# pkgs.mkDshPlugin 即可。
 let
-  flake = builtins.getFlake "github:<owner>/deepseek-harnix";
-  mkDshPlugin = flake.lib.mkDshPlugin;
-  sets = flake.legacyPackages.${builtins.currentSystem}.dshPackageSets;
+  flake = builtins.getFlake "github:WangYiBen0/deepseek-harnix";
+  system = "x86_64-linux";
+  mkDshPlugin = flake.lib.mkDshPluginFor.${system};
 in
-sets.latest.deepseek-harness.override {
+(flake.legacyPackages.${system}.dshPackageSets.latest.deepseek-harness).override {
   pluginList = [
     (mkDshPlugin {
-      src = fetchFromGitHub {
+      source = fetchFromGitHub {
         owner = "acme";
         repo = "dsh-plugin-acme";
         tag = "v1.2.3";
         hash = "sha256-…";
       };
-      pnpmDepsHash = "sha256-…"; # first run: keep the default lib.fakeHash
-    })                          # and copy the "got:" hash from the error
+      # 首次构建先留 `pnpmDepsHash = lib.fakeHash;`，
+      # 报错里会打印真实的 "got:" hash，复制进来即可。
+      pnpmDepsHash = "sha256-…";
+    })
   ];
 }
 ```
@@ -142,23 +154,29 @@ sets.latest.deepseek-harness.override {
 
 ```nix
 mkDshPlugin {
-  # One of:
-  src = fetchFromGitHub { … };          # any source tree / fetcher result
-  npmName = "@acme/dsh-plugin-acme";    # or the npm registry, with
-  npmVersion = "1.2.3";                 # required:
-  hash = "sha256-…";                    #   registry tarball hash
+  # 二选一（只能给一个；源码树用 `source`）：
+  source = fetchFromGitHub { … };       # 任意源码树 / fetcher 结果
+  npmName = "@acme/dsh-plugin-acme";    # 或从 npm registry 拉取，需同时给出
+  npmVersion = "1.2.3";                 #   版本号
+  hash = "sha256-…";                    #   与 registry tarball 的 hash
 
-  # Optional:
-  packageDir = "packages/plugin";       # workspace member (monorepos)
-  pname = "…";                          # override metadata detected from
-  version = "…";                        #   package.json
-  pnpmDepsHash = lib.fakeHash;          # deps store hash (pnpm projects)
-  npmDepsHash = lib.fakeHash;           # … or npm / yarnDepsHash (yarn)
-  npmBuildScript = "build";             # also used as pnpmBuildScript
-  nestedPnpmDeps = fetchPnpmDeps { … }; # pnpm store for a nested workspace
-  nestedPnpmDir = "vendor/dsh-std";     # … and where to point it
-  pruneDevDependencies = false;         # drop devDependencies from output
-  env = { … };                          # extra build env
+  # 可选：
+  packageDir = "packages/plugin";       # workspace 成员（monorepo）
+  pname = "…";                          # 覆盖从 package.json 探测到的
+  version = "…";                        #   元数据
+  pnpmDepsHash = lib.fakeHash;          # 依赖 store hash（pnpm 项目）
+  npmDepsHash = lib.fakeHash;           # … 或 npm / yarnDepsHash（yarn）
+  npmLockfile = ./package-lock.json;    # 未自带 lockfile 的 tarball 用
+  npmBuildScript = "build";             # 同时作为 pnpmBuildScript
+  npmBuild = false;                     # 重新构建自带 lib/ 的 tarball
+  npmRegistry = null;                   # 构建期的 registry 覆盖
+  autoInstallPeers = null;              # null = 跟随 lockfile
+  npmFlags = null;                      # 额外的 `npm ci` 参数
+  dshVersionRange = ">=0.2.1-alpha.1 <0.3";  # 静态兼容性门禁
+  nestedPnpmDeps = fetchPnpmDeps { … }; # 嵌套 workspace 的 pnpm store
+  nestedPnpmDir = "vendor/dsh-std";     # … 以及指向它的位置
+  pruneDevDependencies = false;         # 从输出中剔除 devDependencies
+  env = { … };                          # 额外构建环境变量
   nativeBuildInputs = [ … ];
   meta = { … };
 }
@@ -183,9 +201,11 @@ mkDshPlugin {
   false`）：dsh 的运行时解析器会把安装中唯一的共享实例提供给每个 profile
   插件，因此插件绝不能打包第二份 cordis。
 
-可作为顶层 `mkDshPlugin` 访问（针对当前系统求值），也可通过
-`overlays.default` 作为 `pkgs.mkDshPlugin` 访问，或按包集合访问：
-`legacyPackages.<system>.dshPackageSets.latest.mkDshPlugin`。
+可通过 `lib.mkDshPluginFor.<system>` 访问，也可通过 `overlays.default`
+作为 `pkgs.mkDshPlugin` 访问，或按包集合访问：
+`legacyPackages.<system>.dshPackageSets.latest.mkDshPlugin`。不带系统前缀的
+`lib.mkDshPlugin` 只在 impure 求值下可用（它读取 `builtins.currentSystem`）；
+在纯 flake 求值中它会直接抛错，而不是猜一个系统。
 
 ## 声明式 profile（NixOS / Home Manager）
 
@@ -231,17 +251,18 @@ mkDshPlugin {
 
       # 要安装并启用的插件，按 bundle 顺序。
       plugins = [
-        (inputs.deepseek-harnix.mkDshPlugin { src = ./my-plugin; })
+        (pkgs.mkDshPlugin { source = ./my-plugin; })
       ];
       # 只安装、不启用的插件（等价于插件列表里被禁用的一行）。
       disabledPlugins = [ ];
 
       # `cordis.patch.yml` 有两种归属方式，因为 dsh 会在运行时改写它：
       #
-      #   `patches`     —— 配置。每次激活都重写，命令式改动无法在
-      #                    重新构建后保留。
-      #   `seedPatches` —— 初始内容。仅在文件不存在时写入，之后归 dsh
-      #                    和你所有。web UI 的模型选择器管理该文件时用这个。
+      #   `patches`     —— 配置。每次激活和每次重置都重写，命令式改动
+      #                    无法保留。
+      #   `seedPatches` —— 初始内容。仅在文件不存在时写入；之后的 reset
+      #                    也会保留这份活文件。web UI 的模型选择器管理该
+      #                    文件时用这个。
       seedPatches = [
         { id = "hmr"; disabled = true; }
       ];
@@ -273,7 +294,8 @@ NixOS 用法相同（`nixosModules.default`），外加一个 `programs.dsh.user
 - `seedPatches` 与 `patches` 的区别：dsh 的 web UI、模型选择器和
   `dsh plugin` 会在运行时改写 `cordis.patch.yml`，因此 patch 层属于活状态
   的 profile 应使用 `seedPatches`（声明一次，之后归 dsh 所有），而非
-  `patches`（声明本身，每次 reset 时重新应用）。
+  `patches`（声明本身，每次 reset 时重新应用）。激活与 `dsh-config-reset`
+  都遵守这一点：seed 出的文件只会被创建，存在期间绝不会被覆盖。
 
 ### 激活只负责创建；`dsh-config-reset` 负责重新同步
 
@@ -284,7 +306,7 @@ patch 层，归 Nix 所有）与**运行时状态**（`cordis.yml`、会话、�
 | | profile 不存在 | profile 已存在 |
 |---|---|---|
 | `nixos-rebuild switch` / `home-manager switch` | 按 store 模板创建 | **完全不动**；声明变了只打印一条提示 |
-| `dsh-config-reset [名字…]` | 创建 | 按 store 模板覆盖声明；`cordis.yml` 等运行时状态保留 |
+| `dsh-config-reset [名字…]` | 创建 | 按 store 模板覆盖声明；`cordis.yml` 等运行时状态保留，`seedPatches` 文件也保持 dsh 写入的内容 |
 
 所以重新构建绝不会丢弃正在使用的 profile；要把改过的插件集合或 patch 层
 推到已有 profile 上，需要显式执行：
@@ -301,21 +323,21 @@ reset 里点名时才会被接管。NixOS 上配置了多个 `programs.dsh.users
 ## 插件目录与 registry 订阅
 
 `pkgs/dsh-plugins.nix` 是精选插件目录；flake 将其暴露为
-`dshPlugins`，并构建为 `dshPluginRegistry`——一个**静态 npm
+`dshPlugins`，并构建为 `dsh-plugin-registry`——一个**静态 npm
 registry 树**，dsh 的插件管理器可从中安装（按照 `--registry` 的处理方式，
 dsh 的 registry 就是 npm registry）：
 
 ```console
-$ nix build .#dshPluginRegistry
+$ nix build .#dsh-plugin-registry
 $ cd result && python3 -m http.server 4873
-# then set http://127.0.0.1:4873 as the registry in dsh's plugin manager,
-# or: pnpm --registry http://127.0.0.1:4873 add <plugin>
+# 然后在 dsh 的插件管理器里把 http://127.0.0.1:4873 设为 registry，
+# 或者：pnpm --registry http://127.0.0.1:4873 add <plugin>
 ```
 
 每个包都会获得一份 npm 元数据文档（`index.json`，包含
 `dist.tarball`/`shasum`/`integrity`）和一个 tarball；`catalog.json`
 汇总该列表。`registryBaseUrl` 可覆盖：
-`dshPluginRegistry.override { registryBaseUrl = "https://plugins.example.com"; }`。
+`dsh-plugin-registry.override { registryBaseUrl = "https://plugins.example.com"; }`。
 编辑 `pkgs/dsh-plugins.nix` 即可让目录指向你自己的插件
 （条目都是普通的 `mkDshPlugin` 调用）。
 
@@ -325,9 +347,13 @@ $ cd result && python3 -m http.server 4873
 ——一种 node-semver 范围，由 dsh 自己的 `engines.dsh` 准入所理解。只要
 插件遇到 harness 版本，flake 就会**在求值时**强制执行它：
 
-- `legacyPackages.<system>.dshPackageSets.<v>.withPlugins [ … ]` / `.deepseek-harness.override { pluginList = …; }`
-  在某个插件的范围不接受该集合的版本时会求值失败，
-- 当某个 profile 插件不接受 `programs.dsh.package` 时，模块选项会失败。
+- `dshPackageSets.<v>.withPlugins [ … ]` 在某个插件的范围不接受该集合的
+  版本时求值失败，
+- `.deepseek-harness.override { pluginList = …; }` 同样会失败——包本身会
+  检查它的 `pluginList`，所以绕过 `withPlugins` 并不能绕过门禁，
+- NixOS 模块会断言、profile derivation 会失败：当某个 profile 插件不接受
+  `programs.dsh.package` 时。（Home Manager 没有 `assertions` 选项，因此
+  那把门禁由 profile derivation 承担。）
 
 支持的语法：以空白/逗号分隔的 `>= > <= < =` 比较符，外加
 `^` 和 `~`。示例：`dshVersionRange = ">=0.2.1-alpha.1 <0.3";`。
@@ -348,7 +374,7 @@ fish 会自动识别它们。
 服务，运行 `dsh --profile <profile> --no-open`（默认 profile 为 `web`）：
 
 ```nix
-# NixOS — the unit is gated to the configured users with ConditionUser.
+# NixOS——该单元通过 ConditionUser 限定到所配置的用户。
 programs.dsh = {
   enable = true;
   users = [ "alice" ];
@@ -357,12 +383,12 @@ programs.dsh = {
   services.web.extraArgs = [ "--verbose" ];
 };
 
-# Boot-time start without login:
+# 无需登录即可在开机时启动：
 users.users.alice.linger = true;
 ```
 
 ```nix
-# Home Manager — the unit belongs to the invoking user.
+# Home Manager——该单元属于执行激活的用户。
 programs.dsh.services.web.enable = true;
 ```
 
@@ -426,16 +452,30 @@ Input 被固定到 `github:owner/repo` ref 加上记录在 flake.lock 中的
 `narHash`/`rev`——绝不固定到会变的 `archive/*.tar.gz` URL，其 hash 会在上游
 变化并破坏每一次求值。用 `nix flake update` 升级。
 
-本仓库是一个由 git 跟踪的 flake：`nix build .#…` 以及所有其他可安装对象都
-对**已提交**的树求值，因此未提交的改动对它们不可见——测试前请先提交
-（或使用类似 `git+file://$PWD?…` 的 dirty-tree flake ref）。`nix flake
-check` / CI 始终针对检出运行，因此随发布的是已提交的状态。
+这是一个由 git 跟踪的 flake，因此它的输入是 Git **跟踪**的文件。对已跟踪
+文件的未提交改动**会被**纳入——进入一份 `-dirty` 副本，Nix 会给出提示
+（`warning: Git tree … is dirty`）；而**未跟踪**的文件根本不会被复制进去。
+这种不对称在两个方向上都值得注意：脏工作树会静默改变你实际构建的东西，
+而从没 `git add` 过的新文件对 Nix 等于不存在。构建前先 `git add`，发布用
+一次干净的 commit。
 
 ```console
-$ nix build .#checks.x86_64-linux.plugin-e2e   # end-to-end: dsh + Nix-built
-                                               # plugin + declarative profile
-$ nix flake check                              # heavy: builds all packages
+$ nix build .#checks.x86_64-linux.plugin-e2e   # 端到端：dsh + Nix 构建的
+                                               # 插件 + 声明式 profile
+$ nix flake check --all-systems                # 本机执行全部 check，
+                                               # 其余系统只求值
 ```
+
+值得了解的 check：
+
+| Check | 证明什么 |
+| --- | --- |
+| `plugin-e2e` | 一个由 Nix 构建、经 `pluginList` 预置的插件，通过声明式 profile 挂载，并在真实 `dsh` 中让 patch 层生效 |
+| `dsh-modules-vm` | 真实 NixOS VM：`$HOME` 展开、seed 的 patch 层在重建后保留、`dsh-config-reset` 语义，以及针对假模型端点的一次真实 agent 回合 |
+| `home-manager-module` | 生成的激活脚本与 systemd 单元 |
+| `mkDshPlugin-npm`、`mkDshPlugin-pnpm-workspace`、`mkDshPlugin-npm-registry` | 三条打包路径（npm lockfile、pnpm workspace 成员、registry tarball） |
+| `range-eval` | `dshVersionRange` 的算术，以及不兼容插件会被拒绝 |
+| `plugin-registry`、`unstable-pin`、`versions-json` | registry 树、移动的 `unstable` 固定点、发行版列表 |
 
 `test/minimal-plugin/` 是端到端检查使用的仅含 patch 的 bundle 夹具：
 它通过 `mkDshPlugin` 构建，用 `pluginList` 预置进 harness，通过声明式
@@ -490,18 +530,24 @@ NixOS/HM 模块在 `modules/`。
 | 路径 | 用途 |
 | --- | --- |
 | `flake.nix` | input + `flake-parts.lib.mkFlake`，别无其他 |
-| `flake-modules/` | 输出接线：`packages.nix`（packages、apps、包集合）、`overlays.nix`、`checks.nix`、`modules.nix`（NixOS/HM 模块、顶层 `mkDshPlugin`）、`lib.nix`（把 `lib/` 暴露为模块参数） |
+| `flake-modules/` | 输出接线：`packages.nix`（packages、apps、包集合）、`overlays.nix`、`checks.nix`、`modules.nix`（NixOS/HM 模块、`lib.mkDshPlugin`）、`lib.nix`（把 `lib/` 暴露为模块参数） |
 | `lib/default.nix` | 内部辅助函数：发行版列表、版本名清理、`mkDshPackageSet` |
 | `pkgs/deepseek-harness.nix` | deepseek-harness 包（版本 + hash 参数化） |
 | `pkgs/mkDshPlugin.nix` | npm/GitHub → dsh 插件包构建器 |
 | `test/plugins/driver.sh` | 真实插件兼容性运行的通用驱动器（用例位于 `.prefetch/`，从不提交） |
+| `test/vm-modules.nix` | `checks.<system>.dsh-modules-vm` 背后的 NixOS VM 测试 |
+| `test/minimal-plugin/`、`test/npm-plugin/`、`test/workspace-plugin/` | 三条 `mkDshPlugin` 打包路径的夹具 |
+| `pkgs/dsh-plugin-registry.nix`、`pkgs/dsh-registry-writer.js` | 精选目录的静态 npm registry 树 |
+| `pkgs/completions/` | bash/zsh/fish 脚本，以及驱动各 shell 的检查 |
 | `pkgs/versions.json` | 发行版 hash 列表（只追加，由 action 维护） |
 | `pkgs/unstable.json` | `dshPackageSets.unstable` 的移动固定点（由 action 维护） |
 | `modules/options.nix` | 共享的 `programs.dsh` 选项 |
 | `modules/nixos.nix` | NixOS 模块（激活同步、用户服务） |
 | `modules/home-manager.nix` | Home Manager 模块（激活同步、用户服务） |
 | `modules/dsh-profile.nix` | profile 目录模板 derivation 构建器 |
+| `modules/dsh-profile-writer.js` | 写入 profile 的 `package.json`、`cordis.patch.yml` 和 `pnpm-workspace.yaml` |
+| `modules/profile-range-assertions.nix` | NixOS 模块的 `dshVersionRange` 断言 |
 | `modules/profile-sync.nix` | store 模板 → 可写 profile 目录同步 |
-| `scripts/prefetch-dsh-version.sh` | 单个发行版的 hash 计算 |
+| `scripts/prefetch-dsh-version.sh` | 单个发行版的 hash 计算（`--unstable` 取分支头部） |
 | `scripts/merge-versions.py` | versions.json 合并辅助脚本 |
 | `scripts/merge-unstable.py` | 原地刷新 `unstable` 固定点 |
