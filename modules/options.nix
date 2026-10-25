@@ -20,9 +20,19 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.callPackage ../pkgs/deepseek-harness.nix {
-        inherit (defaultRelease) version srcHash pnpmDepsHash;
-      };
+      # `lib.callPackageWith` with the names this derivation owns blanked out,
+      # not `pkgs.callPackage`: nixpkgs has unrelated packages under exactly
+      # these attribute names — `src` is a throw alias for
+      # `simple-revision-control`, and `commit` is the `commit` editor (a
+      # `commit-4.x` package) — so `callPackage` would inject them as the
+      # source and as the release commit. Both values come from
+      # `versions.json`, so neither may be injectable.
+      default =
+        lib.callPackageWith (pkgs // { src = null; commit = null; }) ../pkgs/deepseek-harness.nix
+          {
+            inherit (defaultRelease) version srcHash pnpmDepsHash;
+            commit = defaultRelease.commit or null;
+          };
       defaultText = lib.literalMD "the newest release from `pkgs/versions.json`, built by this flake's `pkgs/deepseek-harness.nix`";
       example = lib.literalExpression ''
         inputs.deepseek-harnix.legacyPackages.''${pkgs.stdenv.hostPlatform.system}
