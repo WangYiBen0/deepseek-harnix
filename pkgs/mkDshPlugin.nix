@@ -149,8 +149,10 @@ let
 
   registryTarball = fetchurl {
     url = let
-      # @scope%2fname for scoped packages, plain name otherwise.
-      encoded = lib.replaceStrings [ "/" ] [ "%2f" ] (lib.removePrefix "@" npmName);
+      # `@scope%2fname` for scoped packages, plain name otherwise. The leading
+      # `@` is part of npm's scoped path — dropping it requests a different
+      # (nonexistent) package and the mirror answers 404, so it stays.
+      encoded = lib.replaceStrings [ "/" ] [ "%2f" ] npmName;
       tarballBase = lib.last (lib.splitString "/" (lib.removePrefix "@" npmName));
     in assert hasRegistry -> npmVersion != null;
       "https://registry.npmjs.org/${encoded}/-/${tarballBase}-${npmVersion}.tgz";
