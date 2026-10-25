@@ -85,9 +85,11 @@ let
         dsh_apply_template() {
           local template="$1" target="$2"
           ''${DRY_RUN_CMD:-} rm -rf "$target/node_modules"
-          ''${DRY_RUN_CMD:-} cp -a "$template"/. "$target"/
-          # The seed marker describes the template, not the profile.
+          # The seed marker describes the template, not the profile, so it must
+          # go — and before the copy, because `cp -a` preserves the store's
+          # read-only mode and the removal would then fail.
           ''${DRY_RUN_CMD:-} rm -f "$target/.dsh-patch-seeded"
+          ''${DRY_RUN_CMD:-} cp -a "$template"/. "$target"/
           ''${DRY_RUN_CMD:-} chmod -R u+w "$target"
           printf '%s\n' "$template" > "$target/.dsh-managed"
           ${chownCmd}
