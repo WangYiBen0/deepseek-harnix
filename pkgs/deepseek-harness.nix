@@ -1,11 +1,14 @@
 {
   lib,
   stdenv,
+  bash,
+  bash-completion,
   bubblewrap,
   curl,
   fetchFromGitHub,
   fetchPnpmDeps,
   fetchzip,
+  fish,
   makeBinaryWrapper,
   nodejs_24,
   pnpm_11,
@@ -14,6 +17,7 @@
   runCommand,
   nix-update-script,
   testers,
+  zsh,
 
   # Out-of-tree plugin ("bundle") derivations to bake into this installation.
   # Each plugin is symlinked into the installation's node_modules so the
@@ -156,6 +160,15 @@ stdenv.mkDerivation (finalAttrs: {
     makeBinaryWrapper
   ];
 
+  # Only used by installCheckPhase, which drives each shell's real completion
+  # machinery against the installed scripts.
+  nativeCheckInputs = [
+    bash
+    bash-completion
+    fish
+    zsh
+  ];
+
   preBuild = ''
     export DSH_CLIENT_COMMIT_HASH=$(cat $src/.git-commit)
     export DSH_CLIENT_BUILD_PROFILE="official";
@@ -258,9 +271,17 @@ stdenv.mkDerivation (finalAttrs: {
     )
     test "$actual_pnpm_version" = "$expected_pnpm_version"
 
-    test -f $out/share/bash-completion/completions/dsh
-    test -f $out/share/zsh/site-functions/_dsh
-    test -f $out/share/fish/vendor_completions.d/dsh.fish
+    # ── Shell completions ────────────────────────────────────────────────────
+    # A file that exists but cannot register itself is indistinguishable from
+    # a missing one to the user, so each shell is driven through its own
+    # completion machinery and the words it offers are compared. The checks
+    # live in a script to keep the shell quoting readable.
+    dsh_out=$out \
+    dsh_bash=${bash} \
+    dsh_bashcomp=${bash-completion} \
+    dsh_fish=${fish} \
+    dsh_zsh=${zsh} \
+      ${bash}/bin/bash ${./completions/install-check.sh}
   '';
 
   passthru = {
