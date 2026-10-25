@@ -85,10 +85,31 @@ in
               {option}`programs.dsh.profiles`.
             '';
           };
+          host = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            example = "127.0.0.1";
+            description = ''
+              Bind address passed as `--host`. `null` (the default) leaves it
+              to the profile, which resolves to `127.0.0.1`. The web profile
+              rejects wildcard addresses: it binds one concrete local
+              interface, because listening on every interface exposes the
+              launch token and remote code execution to the network.
+            '';
+          };
+          port = lib.mkOption {
+            type = lib.types.nullOr lib.types.port;
+            default = null;
+            example = 3080;
+            description = ''
+              Listen port passed as `--port`. `null` (the default) leaves it
+              to the profile, which resolves to `3080`.
+            '';
+          };
           extraArgs = lib.mkOption {
             type = lib.types.listOf lib.types.str;
             default = [ ];
-            example = [ "--verbose" ];
+            example = [ "--trusted-host" "dsh.example" ];
             description = "Extra dsh CLI arguments between the profile and the forced `--no-open`.";
           };
         };
@@ -177,11 +198,31 @@ in
             default = [ ];
             description = ''
               Entries of the profile's `cordis.patch.yml` user patch layer,
-              written as a JSON array (valid YAML). Restricted to plain data:
-              loader patches relying on `!!js` expressions cannot be
-              expressed here — take over the profile imperatively for those
-              (delete the managed directory, then edit the file by hand or
-              let `dsh plugin` manage it).
+              written as a JSON array (valid YAML). This is the *declared*
+              layer: a non-empty list is written on every activation, so
+              imperative edits to it do not survive a rebuild. Leave it empty
+              (the default) to let {option}`seedPatches` seed the file once and
+              then hand it over to dsh and to you.
+
+              Restricted to plain data: loader patches relying on `!!js`
+              expressions cannot be expressed here — take over the profile
+              imperatively for those.
+            '';
+          };
+
+          seedPatches = lib.mkOption {
+            type = with lib.types; listOf anything;
+            default = [ ];
+            description = ''
+              Starting content for the profile's `cordis.patch.yml`, written
+              only while the file does not exist yet. dsh's own web UI, model
+              picker and `dsh plugin` rewrite that file at runtime, so it is
+              mutable state: after the first write it belongs to dsh and to
+              you, and no later activation touches it.
+
+              Applies only while {option}`programs.dsh.profiles.<name>.patches`
+              is empty; a non-empty `patches` list is the declared layer and
+              wins.
             '';
           };
         };

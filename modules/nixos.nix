@@ -27,6 +27,18 @@ let
       profiles = cfg.profiles;
       chown = "chown -R ${user}:${config.users.users.${user}.group}";
     };
+
+  # Launcher flags shared by the unit: profile first, then an optional bind
+  # address and port, then anything extra, and `--no-open` last (there is no
+  # browser session to open under a unit).
+  webArgs =
+    [ "--profile" cfg.services.web.profile ]
+    ++ lib.optional (cfg.services.web.host != null) "--host"
+    ++ lib.optional (cfg.services.web.host != null) cfg.services.web.host
+    ++ lib.optional (cfg.services.web.port != null) "--port"
+    ++ lib.optional (cfg.services.web.port != null) (toString cfg.services.web.port)
+    ++ cfg.services.web.extraArgs
+    ++ [ "--no-open" ];
 in
 {
   imports = [ ./options.nix ];
@@ -63,16 +75,7 @@ in
       };
       wantedBy = [ "default.target" ];
       serviceConfig = {
-        ExecStart =
-          lib.escapeShellArgs (
-            [
-              "${cfg.package}/bin/dsh"
-              "--profile"
-              cfg.services.web.profile
-            ]
-            ++ cfg.services.web.extraArgs
-            ++ [ "--no-open" ]
-          );
+        ExecStart = lib.escapeShellArgs ([ "${cfg.package}/bin/dsh" ] ++ webArgs);
         Restart = "on-failure";
         RestartSec = "5s";
         Environment = lib.optionals (cfg.dshHome != null) [ "DSH_HOME=${cfg.dshHome}" ];

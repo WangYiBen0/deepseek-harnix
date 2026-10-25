@@ -40,6 +40,10 @@ in
 ''
   dsh_sync_profile() {
     local name="$1" template="$2" target="${dshHome}/profiles/$1"
+    # A profile whose patch layer is mutable state (seedPatches, no declared
+    # patches): the template's cordis.patch.yml is starting content only.
+    local seeded_patch=""
+    [ -e "$template/.dsh-patch-seeded" ] && seeded_patch=1
     mkdir -p "${dshHome}/profiles"
     if [ -L "$target" ]; then
       # A previous-generation symlink or another store-built profile: adopt.
@@ -54,6 +58,7 @@ in
     if [ ! -e "$target" ]; then
       ''${DRY_RUN_CMD:-} mkdir -p "$target"
       ''${DRY_RUN_CMD:-} cp -a "$template"/. "$target"/
+      ''${DRY_RUN_CMD:-} rm -f "$target/.dsh-patch-seeded"
       ''${DRY_RUN_CMD:-} chmod -R u+w "$target"
       ${chownCmd}
       printf '%s\n' "$template" > "$target/.dsh-managed"
@@ -61,7 +66,16 @@ in
       # Refresh managed content; keep dsh's runtime-written cordis.yml.
       ''${DRY_RUN_CMD:-} rm -rf "$target/node_modules"
       ''${DRY_RUN_CMD:-} cp -a "$template"/package.json "$template"/pnpm-workspace.yaml \
-        "$template"/cordis.patch.yml "$template"/node_modules "$target"/
+        "$template"/node_modules "$target"/
+      # A seeded patch layer is mutable state: write it only while the
+      # target has none, otherwise dsh's runtime edits would be clobbered
+      # on every activation.
+      if [ -n "$seeded_patch" ] && [ -e "$target/cordis.patch.yml" ]; then
+        :
+      else
+        ''${DRY_RUN_CMD:-} cp -a "$template"/cordis.patch.yml "$target"/
+      fi
+      ''${DRY_RUN_CMD:-} rm -f "$target/.dsh-patch-seeded"
       ''${DRY_RUN_CMD:-} chmod -R u+w "$target"
       ${chownCmd}
       printf '%s\n' "$template" > "$target/.dsh-managed"

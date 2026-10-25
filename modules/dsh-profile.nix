@@ -38,6 +38,13 @@ let
   # by the manifest writer in the order they were configured.
   staticBundles = (lib.optionals profile.includeBase [ dshBaseBundle ]) ++ profile.bundles;
 
+  # `patches` is configuration and is rewritten on every sync; `seedPatches`
+  # is the starting content of a profile whose patch layer afterwards belongs
+  # to dsh (its web UI, model picker and `dsh plugin` rewrite the file). Only
+  # one of them can be in effect. See modules/profile-sync.nix for the
+  # "overwrite" versus "write once" distinction this feeds.
+  patchLayer = if profile.patches != [ ] then profile.patches else profile.seedPatches;
+
   writer = ./dsh-profile-writer.js;
 in
 pkgs.runCommand "dsh-profile-${lib.strings.sanitizeDerivationName name}"
@@ -52,7 +59,11 @@ pkgs.runCommand "dsh-profile-${lib.strings.sanitizeDerivationName name}"
     dsh_plugin_store_paths = lib.concatMapStringsSep " " toString orderedPlugins;
 
     dsh_bundles_static = builtins.toJSON staticBundles;
-    dsh_profile_patches = builtins.toJSON profile.patches;
+    dsh_profile_patches = builtins.toJSON patchLayer;
+    # consumePatches=1 tells the sync script that this profile's
+    # cordis.patch.yml is mutable state: copy it only while the target has
+    # none, instead of overwriting it on every activation.
+    dsh_patches_seeded = lib.optionalString (profile.patches == [ ] && patchLayer != [ ]) "1";
     passAsFile = [ "dsh_bundles_static" "dsh_profile_patches" ];
   }
   ''
@@ -91,4 +102,10 @@ pkgs.runCommand "dsh-profile-${lib.strings.sanitizeDerivationName name}"
     }
     test -f $out/cordis.patch.yml
     test -f $out/pnpm-workspace.yaml
+
+    # Marker consumed by modules/profile-sync.nix: this profile's patch layer
+    # is starting content, so a sync must not overwrite an existing file.
+    if [ -n "''${dsh_patches_seeded:-}" ]; then
+      : > $out/.dsh-patch-seeded
+    fi
   ''
