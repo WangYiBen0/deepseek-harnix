@@ -29,9 +29,17 @@
   #
   # Usage:
   #   deepseek-harness.override {
-  #     pluginList = [ (mkDshPlugin { src = fetchFromGitHub { ... }; }) ];
+  #     pluginList = [ (mkDshPlugin { source = fetchFromGitHub { ... }; }) ];
   #   }
+  #
+  # Every plugin declaring `dshVersionRange` is checked against `version`
+  # here, at evaluation time — this is the enforcement point that also covers
+  # a direct `.override { pluginList = …; }` call, which does not pass through
+  # the package set's `withPlugins`. `rangeChecker` is the node-semver subset
+  # from `lib/`; the flake supplies it (standalone `callPackage` leaves it
+  # null, so only the repository's own builds gate plugins).
   pluginList ? [],
+  rangeChecker ? null,
 
   # Release coordinates. The flake passes these from versions.json; the
   # defaults keep this file standalone-buildable with callPackage.
@@ -55,6 +63,31 @@
   # store path and `nix flake show` still tell the two apart.
   nameSuffix ? null,
 }:
+
+let
+  # A plugin's static compatibility gate, resolved from its passthru (what
+  # `mkDshPlugin` sets) or a plain attribute for foreign derivations.
+  pluginRange =
+    plugin: plugin.passthru.dshVersionRange or plugin.dshVersionRange or null;
+
+  checkedPluginList =
+    if rangeChecker == null then
+      pluginList
+    else
+      map (
+        plugin:
+        let
+          range = pluginRange plugin;
+        in
+        if range == null then
+          plugin
+        else
+          assert rangeChecker version range
+            || throw "plugin ${plugin.pnpmName or plugin.pname or plugin.name} requires dsh ${range}, but this package is ${version}";
+          plugin
+      ) pluginList;
+
+in
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "deepseek-harness";
@@ -104,12 +137,12 @@ stdenv.mkDerivation (finalAttrs: {
 
   env = {
     pnpm_config_reporter = "append-only";
-  } // lib.optionalAttrs (pluginList != []) {
+  } // lib.optionalAttrs (checkedPluginList != []) {
     # Space-separated plugin store paths. A list attr would not survive as an
     # environment variable under __structuredAttrs, and plugin names are only
     # known once each plugin's package.json exists, so the per-plugin symlink
     # loop below reads the name back at install time with node.
-    dsh_plugin_store_paths = lib.concatMapStringsSep " " toString pluginList;
+    dsh_plugin_store_paths = lib.concatMapStringsSep " " toString checkedPluginList;
   };
 
   pnpmDeps = fetchPnpmDeps {
@@ -287,8 +320,8 @@ stdenv.mkDerivation (finalAttrs: {
   passthru = {
     # The plugins baked into this installation, and the same override as a
     # call: `harness.withPlugins [ more-plugin ]`.
-    pluginList = pluginList;
-    withPlugins = more: finalAttrs.finalPackage.override { pluginList = pluginList ++ more; };
+    pluginList = checkedPluginList;
+    withPlugins = more: finalAttrs.finalPackage.override { pluginList = checkedPluginList ++ more; };
 
     # NOTE: in this repository the canonical update path is the append-only
     # versions.json maintained by .github/workflows/update-versions.yml; the

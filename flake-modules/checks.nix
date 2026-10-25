@@ -25,6 +25,7 @@
       e2eSync = import ../modules/profile-sync.nix {
         inherit pkgs lib;
         dshHome = "$DSH_HOME";
+        dshVersion = set.version;
         profiles = {
           e2e = e2eProfileCfg;
         };
@@ -106,13 +107,23 @@
             tilde = flakelib.dshSatisfiesRange "0.2.1-rc.2" "~0.2.0";
             # tryEval only reaches weak head normal form, so force the
             # derivation path — where the range assert actually fires.
-            blocked = builtins.tryEval (
-              (set.withPlugins [
-                (set.mkDshPlugin {
-                  source = ../test/minimal-plugin;
-                  dshVersionRange = ">=99.0";
-                })
-              ]).drvPath
+            badPlugin = set.mkDshPlugin {
+              source = ../test/minimal-plugin;
+              dshVersionRange = ">=99.0";
+            };
+            goodPlugin = set.mkDshPlugin {
+              source = ../test/minimal-plugin;
+              dshVersionRange = ">=0.2.1-alpha.1 <0.3";
+            };
+            blocked = builtins.tryEval ((set.withPlugins [ badPlugin ]).drvPath);
+            # The same gate must hold for a bare `.override`, which never
+            # passes through `withPlugins` — the package checks its own
+            # `pluginList`, so bypassing the helper cannot bypass the check.
+            blockedOverride = builtins.tryEval (
+              (set.deepseek-harness.override { pluginList = [ badPlugin ]; }).drvPath
+            );
+            allowedOverride = builtins.tryEval (
+              (set.deepseek-harness.override { pluginList = [ goodPlugin ]; }).drvPath
             );
           in
           pkgs.runCommand "dsh-range-eval-check"
@@ -121,11 +132,15 @@
               expectCaret = if caret then 1 else 0;
               expectTilde = if tilde then 1 else 0;
               expectBlocked = if blocked.success then 1 else 0;
+              expectBlockedOverride = if blockedOverride.success then 1 else 0;
+              expectAllowedOverride = if allowedOverride.success then 1 else 0;
               passAsFile = [
                 "expectOk"
                 "expectCaret"
                 "expectTilde"
                 "expectBlocked"
+                "expectBlockedOverride"
+                "expectAllowedOverride"
               ];
             }
             ''
@@ -133,6 +148,8 @@
               test "$(cat $expectCaretPath)" = 1
               test "$(cat $expectTildePath)" = 1
               test "$(cat $expectBlockedPath)" = 0
+              test "$(cat $expectBlockedOverridePath)" = 0
+              test "$(cat $expectAllowedOverridePath)" = 1
               echo ok > $out
             '';
 
@@ -222,10 +239,16 @@
         dsh-modules-vm = pkgs.runCommand "dsh-modules-vm-check" { } ''
           cp -r ${vmTest} $out
         '';
-        # Reading a registry tarball's metadata is import-from-derivation, and
-        # IFD cannot build a foreign system's derivation — so this check is
-        # defined on Linux only, which keeps `nix flake check` able to evaluate
-        # the Darwin outputs from a Linux machine.
+      }
+      # Import-from-derivation cannot build a *foreign* system's derivation:
+      # reading a registry tarball's package.json runs a per-system build at
+      # evaluation time, so evaluating aarch64 from an x86_64 machine cannot
+      # do it. This check is therefore pinned to the system CI actually builds
+      # on. The gate is a constant comparison on purpose: `builtins.current
+      # System` does not exist in a pure evaluation (which is what
+      # `nix flake check` is), so gating on it would silently drop the check
+      # from CI instead of keeping it.
+      // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
         mkDshPlugin-npm-registry =
           pkgs.runCommand "dsh-mkplugin-npm-registry-check"
             {
@@ -240,7 +263,10 @@
               grep -q '"name": "ms"' $plugin/package.json
               echo $plugin > $out
             '';
-
+      }
+      # Home Manager's systemd user options exist only on Linux, so this check
+      # (which asserts on the generated unit) is Linux-only.
+      // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         home-manager-module =
           let
             hmConfig =

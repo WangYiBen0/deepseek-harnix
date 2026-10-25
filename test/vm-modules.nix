@@ -199,10 +199,19 @@ pkgs.testers.runNixOSTest {
     machine.succeed("grep -q edited-by-dsh /home/alice/.dsh/profiles/headless/cordis.patch.yml")
 
     # ── dsh-config-reset re-syncs the declaration from the store ────────────
+    # `seedPatches` is *starting* content, not a declaration: dsh's web UI,
+    # model picker and `dsh plugin` rewrite `cordis.patch.yml` at runtime, so
+    # a reset must refresh the manifest and node_modules while leaving the
+    # live patch layer alone.
     machine.succeed("su - alice -c 'dsh-config-reset headless' >/tmp/reset.out 2>&1")
     machine.succeed("grep -q 'dsh-profile-headless' /home/alice/.dsh/profiles/headless/package.json")
+    machine.succeed("grep -q edited-by-dsh /home/alice/.dsh/profiles/headless/cordis.patch.yml")
+
+    # The seed only fills a missing file, so a profile whose patch layer was
+    # deleted gets the template's content back.
+    machine.succeed("rm -f /home/alice/.dsh/profiles/headless/cordis.patch.yml")
+    machine.succeed("su - alice -c 'dsh-config-reset headless' >/dev/null 2>&1")
     machine.succeed("grep -q fake-model /home/alice/.dsh/profiles/headless/cordis.patch.yml")
-    machine.succeed("! grep -q edited-by-dsh /home/alice/.dsh/profiles/headless/cordis.patch.yml")
 
     # A profile the module did not create is adopted only by an explicit
     # reset, never by activation.

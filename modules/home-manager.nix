@@ -23,6 +23,7 @@ let
   # modules/profile-sync.nix for why those are separate operations.
   profileSync = import ./profile-sync.nix {
     inherit lib pkgs dshHome;
+    dshVersion = cfg.package.version;
     inherit (cfg) profiles;
   };
 

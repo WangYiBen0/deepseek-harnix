@@ -157,6 +157,10 @@ in
         commit = entry.commit or null;
         srcUrl = entry.srcUrl or null;
         nameSuffix = entry.nameSuffix or null;
+        # The harness itself gates its `pluginList`, so a bare
+        # `.override { pluginList = …; }` — which bypasses `withPlugins` —
+        # is checked too.
+        rangeChecker = dshSatisfiesRange;
       };
     in
     {
@@ -165,7 +169,9 @@ in
       inherit deepseek-harness;
       dsh = deepseek-harness;
       # Static compatibility gate: a plugin's `dshVersionRange` (if declared)
-      # must admit this set's harness version.
+      # must admit this set's harness version. Kept here as well as in the
+      # harness so the failure names the package set (more legible than a
+      # bare derivation error) and so this path stays explicit.
       withPlugins =
         pluginList:
         deepseek-harness.override {

@@ -27,6 +27,7 @@ let
     import ./profile-sync.nix {
       inherit lib pkgs;
       dshHome = dshHomeOf user;
+      dshVersion = cfg.package.version;
       inherit (cfg) profiles;
       chown = "chown -R ${user}:${group}";
     };
@@ -71,7 +72,10 @@ let
   ++ [ "--no-open" ];
 in
 {
-  imports = [ ./options.nix ];
+  imports = [
+    ./options.nix
+    ./profile-range-assertions.nix
+  ];
 
   config = lib.mkIf cfg.enable {
     assertions = [

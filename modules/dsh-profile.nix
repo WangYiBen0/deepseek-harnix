@@ -20,8 +20,13 @@
   # Profile name (the `dsh --profile <name>` argument).
   name,
   # The module's profile configuration:
-  #   includeBase, bundles, plugins, disabledPlugins, patches
+  #   template, includeBase, bundles, plugins, disabledPlugins,
+  #   patches, seedPatches
   profile,
+  # Harness version this profile is mounted into. Plugin `dshVersionRange`
+  # declarations are checked against it here, so both module systems (and any
+  # direct caller) get the gate; `null` skips it.
+  dshVersion ? null,
 }:
 
 let
@@ -77,10 +82,35 @@ let
   patchesAreSeed = profile.patches == [ ] && patchLayer != [ ];
 
   writer = ./dsh-profile-writer.js;
+
+  # Static plugin/harness compatibility gate, mirroring the package-set
+  # helpers. Kept here rather than only in the NixOS module so the Home
+  # Manager path — which has no `assertions` option — fails identically.
+  rangeChecker = (import ../lib { inherit lib; }).dshSatisfiesRange;
+
+  incompatiblePlugins =
+    if dshVersion == null then
+      [ ]
+    else
+      lib.concatMap (
+        plugin:
+        let
+          range = plugin.passthru.dshVersionRange or plugin.dshVersionRange or null;
+        in
+        lib.optional (range != null && !(rangeChecker dshVersion range)) {
+          inherit range;
+          pluginName = plugin.pnpmName or plugin.pname or plugin.name;
+        }
+      ) orderedPlugins;
 in
 assert lib.assertMsg (
   profile.template == null || (profile.bundles == [ ])
 ) "dsh profile ${name}: `template` already defines the bundle list, so `bundles` must stay empty; add extra layers as plugins instead";
+assert
+  lib.assertMsg (incompatiblePlugins == [ ]) (
+    "dsh profile ${name}: plugin(s) do not admit dsh ${toString dshVersion}: "
+    + lib.concatMapStringsSep ", " (p: "${p.pluginName} requires ${p.range}") incompatiblePlugins
+  );
 pkgs.runCommand "dsh-profile-${lib.strings.sanitizeDerivationName name}"
   {
     nativeBuildInputs = [ pkgs.nodejs ];

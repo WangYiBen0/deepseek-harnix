@@ -39,6 +39,9 @@
   chown ? null,
   # pkgs for building the profile templates.
   pkgs,
+  # Harness version the profiles are mounted into; plugin `dshVersionRange`
+  # declarations are checked against it in modules/dsh-profile.nix.
+  dshVersion ? null,
 }:
 
 let
@@ -53,6 +56,7 @@ let
         pkgs
         lib
         name
+        dshVersion
         profile
         ;
     }
@@ -82,15 +86,36 @@ let
 
         # Copy the template over the target. `managed` is left to the caller;
         # this only moves files.
+        #
+        # A template carrying `.dsh-patch-seeded` describes a profile whose
+        # patch layer is starting content only (`seedPatches`), not a
+        # declaration: dsh's web UI, model picker and `dsh plugin` rewrite
+        # `cordis.patch.yml` at runtime. An existing file is therefore live
+        # state and survives the copy; it is seeded only when absent.
         dsh_apply_template() {
-          local template="$1" target="$2"
+          local template="$1" target="$2" seeded="" keep=""
+          [ -e "$template/.dsh-patch-seeded" ] && seeded=1
+          if [ -n "$seeded" ] && [ -e "$target/cordis.patch.yml" ]; then
+            keep="$(mktemp)"
+            cp -a "$target/cordis.patch.yml" "$keep"
+          fi
           ''${DRY_RUN_CMD:-} rm -rf "$target/node_modules"
           # The seed marker describes the template, not the profile, so it must
           # go — and before the copy, because `cp -a` preserves the store's
           # read-only mode and the removal would then fail.
           ''${DRY_RUN_CMD:-} rm -f "$target/.dsh-patch-seeded"
           ''${DRY_RUN_CMD:-} cp -a "$template"/. "$target"/
+          # Write bits first: the copied-in files carry the store's read-only
+          # mode, so restoring the live patch layer has to wait until the
+          # directory is writable again.
           ''${DRY_RUN_CMD:-} chmod -R u+w "$target"
+          # The marker is a property of the template, not of the profile: the
+          # copy above brings a stale one along, and nothing reads it here.
+          ''${DRY_RUN_CMD:-} rm -f "$target/.dsh-patch-seeded"
+          if [ -n "$keep" ]; then
+            ''${DRY_RUN_CMD:-} cp -a "$keep" "$target/cordis.patch.yml"
+            rm -f "$keep"
+          fi
           printf '%s\n' "$template" > "$target/.dsh-managed"
           ${chownCmd}
         }
