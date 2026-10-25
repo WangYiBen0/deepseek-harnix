@@ -285,15 +285,33 @@ Notes:
   `@deepseek-ai/dsh-headless`, sdk = `@deepseek-ai/dsh-sdk-app`,
 - `seedPatches` versus `patches`: dsh's web UI, model picker and `dsh plugin`
   rewrite `cordis.patch.yml` at runtime, so a profile whose patch layer is
-  live state uses `seedPatches` (written once) rather than `patches`
-  (rewritten on every activation).
-- managed directories are refreshed on every activation: the manifest, the
-  patch layer, and the node_modules links are reset from configuration, so
-  imperative changes (e.g. `dsh plugin …`) do not survive a rebuild — remove
-  a profile from `programs.dsh.profiles` to hand it over to imperative
-  management,
-- an existing directory that was not created by the module (no
-  `.dsh-managed` marker) is never touched; the module warns instead.
+  live state uses `seedPatches` (declared once, then owned by dsh) rather than
+  `patches` (the declaration, re-applied on every reset).
+
+### Activation creates; `dsh-config-reset` re-syncs
+
+Two kinds of state share `$DSH_HOME/profiles/<name>`: the declaration (bundle
+list, plugins, patch layer) which Nix owns, and the runtime state
+(`cordis.yml`, sessions, market data) which dsh owns and rewrites while
+running. Activation and reset are therefore separate operations:
+
+| | profile missing | profile exists |
+|---|---|---|
+| `nixos-rebuild switch` / `home-manager switch` | created from the store template | **left completely alone**; if the declaration changed, it prints a hint |
+| `dsh-config-reset [name…]` | created | declaration overwritten from the store template; runtime state such as `cordis.yml` survives |
+
+So a rebuild never discards a live profile, and the way to push a changed
+plugin set or patch layer onto an existing profile is explicit:
+
+```bash
+dsh-config-reset            # every declarative profile
+dsh-config-reset web        # just this one
+```
+
+A directory the module did not create (no `.dsh-managed` marker) is never
+touched by activation, and is adopted only when you name it in a reset. With
+several `programs.dsh.users` on NixOS, each gets `dsh-config-reset-<user>`
+rather than a command that would guess.
 
 ## Plugin catalog and registry subscription
 

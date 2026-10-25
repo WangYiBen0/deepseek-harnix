@@ -167,25 +167,64 @@ pkgs.testers.runNixOSTest {
     machine.succeed("test -f /home/alice/.dsh/profiles/headless/.dsh-managed")
     machine.succeed("grep -q fake-model /home/alice/.dsh/profiles/headless/cordis.patch.yml")
 
-    # ── a seeded patch layer is not rewritten by a rebuild ──────────────────
+    # ── activation never touches an existing profile ────────────────────────
+    # The profile belongs to dsh at runtime (it rewrites cordis.yml and
+    # cordis.patch.yml), so a rebuild must leave it completely alone.
     machine.succeed(
         "echo '[{\"id\":\"edited-by-dsh\"}]' > /home/alice/.dsh/profiles/headless/cordis.patch.yml"
     )
-    # Re-running system activation is what `nixos-rebuild switch` does; the
-    # path is the running system's own, so no interpolation is involved.
-    machine.succeed("/run/current-system/activate")
+    machine.succeed(
+        "echo '{\"name\":\"edited-by-dsh\"}' > /home/alice/.dsh/profiles/headless/package.json"
+    )
+    # Re-running system activation is what `nixos-rebuild switch` does. The
+    # user has to be able to read its output, so the warnings go there.
+    machine.succeed("/run/current-system/activate 2>/tmp/activate.err")
     machine.succeed("grep -q edited-by-dsh /home/alice/.dsh/profiles/headless/cordis.patch.yml")
+    machine.succeed("grep -q 'edited-by-dsh' /home/alice/.dsh/profiles/headless/package.json")
+    # Nothing changed in the configuration, so activation stays quiet: a
+    # rebuild that chatters on every switch trains people to ignore it.
+    machine.succeed("! grep -q 'dsh-config-reset' /tmp/activate.err")
+
+    # A declaration that *did* change is reported, not applied. Faking it is
+    # the point of the marker: the recorded template path is what a rebuild
+    # compares against, so writing a different one is exactly the state a
+    # version bump leaves behind.
+    machine.succeed(
+        "echo /nix/store/00000000000000000000000000000000-dsh-profile-headless"
+        " > /home/alice/.dsh/profiles/headless/.dsh-managed"
+    )
+    machine.succeed("/run/current-system/activate 2>/tmp/activate3.err")
+    machine.succeed("grep -q 'dsh-config-reset' /tmp/activate3.err")
+    # Reported only: the live profile is still untouched.
+    machine.succeed("grep -q edited-by-dsh /home/alice/.dsh/profiles/headless/cordis.patch.yml")
+
+    # ── dsh-config-reset re-syncs the declaration from the store ────────────
+    machine.succeed("su - alice -c 'dsh-config-reset headless' >/tmp/reset.out 2>&1")
+    machine.succeed("grep -q 'dsh-profile-headless' /home/alice/.dsh/profiles/headless/package.json")
+    machine.succeed("grep -q fake-model /home/alice/.dsh/profiles/headless/cordis.patch.yml")
+    machine.succeed("! grep -q edited-by-dsh /home/alice/.dsh/profiles/headless/cordis.patch.yml")
+
+    # A profile the module did not create is adopted only by an explicit
+    # reset, never by activation.
+    machine.succeed("rm -rf /home/alice/.dsh/profiles/headless")
+    machine.succeed("mkdir -p /home/alice/.dsh/profiles/headless")
+    machine.succeed(
+        "echo '{\"name\":\"hand-made\"}' > /home/alice/.dsh/profiles/headless/package.json"
+    )
+    machine.succeed("chown -R alice /home/alice/.dsh/profiles/headless")
+    machine.succeed("/run/current-system/activate 2>/tmp/activate2.err")
+    machine.succeed("grep -q hand-made /home/alice/.dsh/profiles/headless/package.json")
+    machine.succeed("grep -q 'not created by Nix' /tmp/activate2.err")
+    machine.succeed("su - alice -c 'dsh-config-reset headless' >/dev/null 2>&1")
+    machine.succeed("grep -q 'dsh-profile-headless' /home/alice/.dsh/profiles/headless/package.json")
 
     # ── the real harness calls the fake model, which asks for bash ──────────
     # `--json` emits one run event per line, so the assertions read the actual
     # tool call and its result instead of a human-formatted summary.
     #
-    # The seed is re-applied first: the previous step deliberately overwrote
-    # cordis.patch.yml to prove a rebuild leaves it alone, and this run needs
-    # the fake route back. Writing the profile fresh is what a user does by
-    # deleting a profile, so it is the supported path, not a test hack.
-    machine.succeed("rm -rf /home/alice/.dsh/profiles/headless")
-    machine.succeed("/run/current-system/activate")
+    # The profile is whatever the last `dsh-config-reset` produced, which is
+    # the state a user is in after re-syncing: the fake route is back because
+    # the reset restored the declaration.
     machine.succeed(
         "grep -q fake-model /home/alice/.dsh/profiles/headless/cordis.patch.yml"
     )

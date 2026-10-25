@@ -21,24 +21,54 @@ let
 
   syncFor =
     user:
+    let
+      group = config.users.users.${user}.group;
+    in
     import ./profile-sync.nix {
       inherit lib pkgs;
       dshHome = dshHomeOf user;
-      profiles = cfg.profiles;
-      chown = "chown -R ${user}:${config.users.users.${user}.group}";
+      inherit (cfg) profiles;
+      chown = "chown -R ${user}:${group}";
     };
+
+  # Profiles are per-user, so a single reset command has to know whose profile
+  # it is resetting. One configured user is unambiguous; with several, each
+  # gets its own command (`dsh-config-reset-<user>`) rather than a command that
+  # would silently pick one.
+  # The body of a `writeShellScriptBin` is a script, so it has to *run* the
+  # generated snippet — emitting its store path alone yields a command that
+  # cannot be executed (exit 126).
+  resetPackages =
+    if lib.length cfg.users == 1 then
+      let
+        user = lib.head cfg.users;
+      in
+      [
+        (pkgs.writeShellScriptBin "dsh-config-reset" ''
+          exec ${pkgs.bash}/bin/bash ${pkgs.writeText "dsh-config-reset" (syncFor user).resetCommand} "$@"
+        '')
+      ]
+    else
+      map (
+        user:
+        pkgs.writeShellScriptBin "dsh-config-reset-${user}" ''
+          exec ${pkgs.bash}/bin/bash ${pkgs.writeText "dsh-config-reset-${user}" (syncFor user).resetCommand} "$@"
+        ''
+      ) cfg.users;
 
   # Launcher flags shared by the unit: profile first, then an optional bind
   # address and port, then anything extra, and `--no-open` last (there is no
   # browser session to open under a unit).
-  webArgs =
-    [ "--profile" cfg.services.web.profile ]
-    ++ lib.optional (cfg.services.web.host != null) "--host"
-    ++ lib.optional (cfg.services.web.host != null) cfg.services.web.host
-    ++ lib.optional (cfg.services.web.port != null) "--port"
-    ++ lib.optional (cfg.services.web.port != null) (toString cfg.services.web.port)
-    ++ cfg.services.web.extraArgs
-    ++ [ "--no-open" ];
+  webArgs = [
+    "--profile"
+    cfg.services.web.profile
+  ]
+  ++ lib.optional (cfg.services.web.host != null) "--host"
+  ++ lib.optional (cfg.services.web.host != null) cfg.services.web.host
+  ++ lib.optional (cfg.services.web.port != null) "--port"
+  ++ lib.optional (cfg.services.web.port != null) (toString cfg.services.web.port)
+  ++ cfg.services.web.extraArgs
+  ++ [ "--no-open" ];
 in
 {
   imports = [ ./options.nix ];
@@ -59,12 +89,12 @@ in
       }
     ];
 
-    environment.systemPackages = [ cfg.package ];
+    environment.systemPackages = [ cfg.package ] ++ resetPackages;
 
     environment.variables.DSH_HOME = lib.mkIf (cfg.dshHome != null) cfg.dshHome;
 
     system.activationScripts.dshProfiles = lib.stringAfter [ "users" "groups" ] (
-      lib.concatStrings (map syncFor cfg.users)
+      lib.concatStrings (map (user: (syncFor user).activation) cfg.users)
     );
 
     systemd.user.services.dsh-web = lib.mkIf cfg.services.web.enable {

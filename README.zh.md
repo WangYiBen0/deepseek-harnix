@@ -272,14 +272,31 @@ NixOS 用法相同（`nixosModules.default`），外加一个 `programs.dsh.user
   `@deepseek-ai/dsh-sdk-app`，
 - `seedPatches` 与 `patches` 的区别：dsh 的 web UI、模型选择器和
   `dsh plugin` 会在运行时改写 `cordis.patch.yml`，因此 patch 层属于活状态
-  的 profile 应使用 `seedPatches`（只写一次），而非 `patches`
-  （每次激活重写）。
-- 受管理的目录会在每次激活时刷新：manifest、patch 层和 node_modules 链接
-  都会按配置重置，因此命令式改动（例如 `dsh plugin …`）无法在重新构建后
-  保留——把某个 profile 从 `programs.dsh.profiles` 中移除，即可将其交给
-  命令式管理，
-- 已存在但并非由该模块创建的目录（没有 `.dsh-managed` 标记）绝不会被
-  改动；模块会改为发出警告。
+  的 profile 应使用 `seedPatches`（声明一次，之后归 dsh 所有），而非
+  `patches`（声明本身，每次 reset 时重新应用）。
+
+### 激活只负责创建；`dsh-config-reset` 负责重新同步
+
+`$DSH_HOME/profiles/<name>` 里有两类状态：**声明**（bundle 列表、插件、
+patch 层，归 Nix 所有）与**运行时状态**（`cordis.yml`、会话、市场数据，
+归 dsh 所有并在运行中改写）。因此“激活”和“重置”是两种不同的操作：
+
+| | profile 不存在 | profile 已存在 |
+|---|---|---|
+| `nixos-rebuild switch` / `home-manager switch` | 按 store 模板创建 | **完全不动**；声明变了只打印一条提示 |
+| `dsh-config-reset [名字…]` | 创建 | 按 store 模板覆盖声明；`cordis.yml` 等运行时状态保留 |
+
+所以重新构建绝不会丢弃正在使用的 profile；要把改过的插件集合或 patch 层
+推到已有 profile 上，需要显式执行：
+
+```bash
+dsh-config-reset            # 所有声明式 profile
+dsh-config-reset web        # 只重置这一个
+```
+
+并非由该模块创建的目录（没有 `.dsh-managed` 标记）不会被激活触碰，只有在
+reset 里点名时才会被接管。NixOS 上配置了多个 `programs.dsh.users` 时，
+每个用户会得到各自的 `dsh-config-reset-<user>`，而不是一个会去猜的命令。
 
 ## 插件目录与 registry 订阅
 
