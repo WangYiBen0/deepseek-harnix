@@ -36,6 +36,11 @@ let
   mkProfile = import ./dsh-profile.nix;
 
   chownCmd = if chown != null then "${chown} \"$target\" || :" else ":";
+  # The harness home itself, not only the profile inside it: dsh writes its
+  # session logs, storages and market state next to `profiles/`, so a home
+  # created by a root-run activation must belong to the user too.
+  chownHomeCmd =
+    if chown != null then "${chown} -- \"${dshHome}\" || :" else ":";
 in
 ''
   dsh_sync_profile() {
@@ -45,6 +50,7 @@ in
     local seeded_patch=""
     [ -e "$template/.dsh-patch-seeded" ] && seeded_patch=1
     mkdir -p "${dshHome}/profiles"
+    ${chownHomeCmd}
     if [ -L "$target" ]; then
       # A previous-generation symlink or another store-built profile: adopt.
       case "$(readlink -f "$target")" in

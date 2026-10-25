@@ -28,15 +28,45 @@ let
   # Every shipped dsh template starts its bundle list with the base layer.
   dshBaseBundle = "@deepseek-ai/dsh-base";
 
+  # The bundle lists of dsh's shipped templates, mirroring
+  # `PROFILE_TEMPLATES` in the installation
+  # (packages/boot/app-boot/src/profile.ts). They are spelled out here rather
+  # than read from the package: a profile's composition must be evaluable
+  # without building, or even fetching, the installation.
+  shippedTemplates = {
+    acp = [
+      dshBaseBundle
+      "@deepseek-ai/dsh-acp-app"
+    ];
+    web = [
+      dshBaseBundle
+      "@deepseek-ai/dsh-web-app"
+    ];
+    headless = [
+      dshBaseBundle
+      "@deepseek-ai/dsh-headless"
+    ];
+    sdk = [
+      dshBaseBundle
+      "@deepseek-ai/dsh-sdk-app"
+    ];
+    sdk-minimal = [ "@deepseek-ai/dsh-sdk-minimal" ];
+  };
+
   # Active plugins are processed first, so a name listed in both lists
   # resolves as active.
   orderedPlugins = profile.plugins ++ profile.disabledPlugins;
   activeCount = lib.length profile.plugins;
 
-  # Static part of the bundle list: base layer first (patch-layer order),
-  # then the extra bundles as configured. Active plugin names are appended
-  # by the manifest writer in the order they were configured.
-  staticBundles = (lib.optionals profile.includeBase [ dshBaseBundle ]) ++ profile.bundles;
+  # Static part of the bundle list: a shipped template when one is named,
+  # otherwise base layer first (patch-layer order) plus the extra bundles as
+  # configured. Active plugin names are appended by the manifest writer in
+  # the order they were configured.
+  staticBundles =
+    if profile.template != null then
+      shippedTemplates.${profile.template}
+    else
+      (lib.optionals profile.includeBase [ dshBaseBundle ]) ++ profile.bundles;
 
   # `patches` is configuration and is rewritten on every sync; `seedPatches`
   # is the starting content of a profile whose patch layer afterwards belongs
@@ -44,9 +74,13 @@ let
   # one of them can be in effect. See modules/profile-sync.nix for the
   # "overwrite" versus "write once" distinction this feeds.
   patchLayer = if profile.patches != [ ] then profile.patches else profile.seedPatches;
+  patchesAreSeed = profile.patches == [ ] && patchLayer != [ ];
 
   writer = ./dsh-profile-writer.js;
 in
+assert lib.assertMsg (
+  profile.template == null || (profile.bundles == [ ])
+) "dsh profile ${name}: `template` already defines the bundle list, so `bundles` must stay empty; add extra layers as plugins instead";
 pkgs.runCommand "dsh-profile-${lib.strings.sanitizeDerivationName name}"
   {
     nativeBuildInputs = [ pkgs.nodejs ];
@@ -63,7 +97,7 @@ pkgs.runCommand "dsh-profile-${lib.strings.sanitizeDerivationName name}"
     # consumePatches=1 tells the sync script that this profile's
     # cordis.patch.yml is mutable state: copy it only while the target has
     # none, instead of overwriting it on every activation.
-    dsh_patches_seeded = lib.optionalString (profile.patches == [ ] && patchLayer != [ ]) "1";
+    dsh_patches_seeded = lib.optionalString patchesAreSeed "1";
     passAsFile = [ "dsh_bundles_static" "dsh_profile_patches" ];
   }
   ''

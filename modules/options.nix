@@ -148,12 +148,41 @@ in
       '';
       type = lib.types.attrsOf (lib.types.submodule {
         options = {
+          template = lib.mkOption {
+            type = lib.types.nullOr (
+              lib.types.enum [
+                "acp"
+                "web"
+                "headless"
+                "sdk"
+                "sdk-minimal"
+              ]
+            );
+            default = null;
+            example = "web";
+            description = ''
+              Start from a shipped dsh profile template, exactly as
+              `dsh --from-default-profile` would: the template's own bundle
+              list becomes this profile's, so {option}`bundles` does not have
+              to be spelled out.
+
+              `null` (the default) means the bundle list is exactly
+              {option}`includeBase` plus {option}`bundles`.
+
+              A template always defines its full list, so combining it with
+              {option}`includeBase` or {option}`bundles` is rejected — add
+              extra bundles through the plugin list, or drop the template and
+              write the list yourself.
+            '';
+          };
+
           includeBase = lib.mkOption {
             type = lib.types.bool;
             default = true;
             description = ''
               Prepend `@deepseek-ai/dsh-base` to the bundle list — the base
-              layer every shipped dsh profile template starts with.
+              layer every shipped dsh profile template starts with. Ignored
+              when {option}`template` is set, which carries its own base.
             '';
           };
 

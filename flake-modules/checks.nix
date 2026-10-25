@@ -20,6 +20,17 @@
         dshHome = "$DSH_HOME";
         profiles = { e2e = e2eProfileCfg; };
       };
+
+      # Real NixOS VM run of the NixOS module; see test/vm-modules.nix.
+      # Resolved through `self` rather than a relative path: the module path
+      # is passed straight to NixOS, whose module system rejects a path that
+      # arrives as a bare relative import from a spliced source tree.
+      vmTest = import ../test/vm-modules.nix {
+        inherit lib pkgs;
+        module = ../modules/nixos.nix;
+        # The real harness, so the VM run exercises the actual tool surface.
+        harness = e2eHarness;
+      };
     in
     {
       checks = {
@@ -173,6 +184,17 @@
       # Home Manager's systemd option only exists on Linux, so this check
       # (which asserts on the generated unit) is Linux-only too.
       // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        # Runtime behaviour in a real NixOS: `$HOME` expansion, seeded patch
+        # layers surviving a rebuild, and the web unit actually starting.
+        #
+        # `runNixOSTest` yields the *test driver's* attribute set (it carries
+        # `drvPath`, `nodes`, `containers`, …), and `checks` entries have to be
+        # derivations, so the run is wrapped in one. The wrapper's output is
+        # the driver's log, which makes a failing test readable from
+        # `nix log`.
+        dsh-modules-vm = pkgs.runCommand "dsh-modules-vm-check" { } ''
+          cp -r ${vmTest} $out
+        '';
         # Reading a registry tarball's metadata is import-from-derivation, and
         # IFD cannot build a foreign system's derivation — so this check is
         # defined on Linux only, which keeps `nix flake check` able to evaluate
