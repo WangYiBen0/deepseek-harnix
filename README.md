@@ -207,18 +207,38 @@ as linked roots — so **no package manager and no network is ever involved**
 at startup.
 
 ```nix
-# Home Manager
+# Home Manager — two lines to a working web profile
+{ inputs, ... }:
+{
+  imports = [ inputs.deepseek-harnix.homeModules.default ];
+
+  programs.dsh = {
+    enable = true;
+    profiles.web.template = "web";   # the shipped web template, bundles included
+    services.web.enable = true;      # build a `dsh-web` systemd user unit
+  };
+}
+```
+
+That is the whole configuration: `package` defaults to this flake's own build
+(the one with shell completions), and `dshHome` defaults to `~/.dsh`.
+
+A closer look, when you want plugins and a patch layer:
+
+```nix
 { inputs, pkgs, ... }:
 {
   imports = [ inputs.deepseek-harnix.homeModules.default ];
 
   programs.dsh = {
     enable = true;
-    package = inputs.deepseek-harnix.packages.${pkgs.system}.deepseek-harness;
 
     profiles.work = {
-      # Bundle names mounted after the base layer (patch-layer order).
+      # Or name a shipped template (`web`, `acp`, `headless`, `sdk`,
+      # `sdk-minimal`) and skip `bundles` entirely — a template defines the
+      # full list, so combining the two is rejected.
       bundles = [ "@deepseek-ai/dsh-web-app" ];
+
       # Plugins to install AND activate, in bundle order.
       plugins = [
         (inputs.deepseek-harnix.mkDshPlugin { src = ./my-plugin; })
@@ -226,11 +246,25 @@ at startup.
       # Plugins to install but leave disabled (declarative equivalent of a
       # disabled plugin row).
       disabledPlugins = [ ];
-      # The profile's cordis.patch.yml entries (JSON — a valid YAML array;
-      # !!js expressions need an imperatively taken-over profile).
-      patches = [
+
+      # Two ways to own `cordis.patch.yml`, because dsh rewrites it at
+      # runtime:
+      #
+      #   `patches`     — configuration. Written on every activation, so
+      #                   imperative edits do not survive a rebuild.
+      #   `seedPatches` — starting content. Written only while the file does
+      #                   not exist, then owned by dsh and by you. Use this
+      #                   when the web UI's model picker manages the file.
+      seedPatches = [
         { id = "hmr"; disabled = true; }
       ];
+    };
+
+    services.web = {
+      enable = true;
+      profile = "work";
+      host = "127.0.0.1";   # one concrete local address; wildcards rejected
+      port = 3080;
     };
   };
 }
@@ -242,11 +276,17 @@ system activation script, chowned to the user).
 
 Notes:
 
-- every profile starts with `@deepseek-ai/dsh-base` (set
-  `programs.dsh.profiles.<name>.includeBase = false` to control the list
-  entirely); shipped template bundle lists for reference: web =
+- `profiles.<name>.template` takes a shipped template's bundle list verbatim
+  (`web`, `acp`, `headless`, `sdk`, `sdk-minimal`); without one, a profile
+  starts with `@deepseek-ai/dsh-base` (set
+  `profiles.<name>.includeBase = false` to control the list entirely) followed
+  by `bundles`. Shipped lists for reference: web =
   `@deepseek-ai/dsh-web-app`, acp = `@deepseek-ai/dsh-acp-app`, headless =
   `@deepseek-ai/dsh-headless`, sdk = `@deepseek-ai/dsh-sdk-app`,
+- `seedPatches` versus `patches`: dsh's web UI, model picker and `dsh plugin`
+  rewrite `cordis.patch.yml` at runtime, so a profile whose patch layer is
+  live state uses `seedPatches` (written once) rather than `patches`
+  (rewritten on every activation).
 - managed directories are refreshed on every activation: the manifest, the
   patch layer, and the node_modules links are reset from configuration, so
   imperative changes (e.g. `dsh plugin …`) do not survive a rebuild — remove

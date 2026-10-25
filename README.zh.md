@@ -197,30 +197,61 @@ mkDshPlugin {
 ——所以启动时**完全不涉及包管理器，也不涉及网络**。
 
 ```nix
-# Home Manager
+# Home Manager——两行就是一个可用的 web profile
+{ inputs, ... }:
+{
+  imports = [ inputs.deepseek-harnix.homeModules.default ];
+
+  programs.dsh = {
+    enable = true;
+    profiles.web.template = "web";   # 随附的 web 模板，bundle 列表已内置
+    services.web.enable = true;      # 生成 `dsh-web` systemd 用户单元
+  };
+}
+```
+
+这就是全部配置：`package` 默认为本 flake 自己的构建（带 shell 补全的那个），
+`dshHome` 默认为 `~/.dsh`。
+
+需要插件和 patch 层时，展开写是这样：
+
+```nix
 { inputs, pkgs, ... }:
 {
   imports = [ inputs.deepseek-harnix.homeModules.default ];
 
   programs.dsh = {
     enable = true;
-    package = inputs.deepseek-harnix.packages.${pkgs.system}.deepseek-harness;
 
     profiles.work = {
-      # Bundle names mounted after the base layer (patch-layer order).
+      # 也可以直接指定随附模板（`web`、`acp`、`headless`、`sdk`、
+      # `sdk-minimal`）并完全略去 `bundles`——模板定义了整个列表，
+      # 因此两者同时写会被拒绝。
       bundles = [ "@deepseek-ai/dsh-web-app" ];
-      # Plugins to install AND activate, in bundle order.
+
+      # 要安装并启用的插件，按 bundle 顺序。
       plugins = [
         (inputs.deepseek-harnix.mkDshPlugin { src = ./my-plugin; })
       ];
-      # Plugins to install but leave disabled (declarative equivalent of a
-      # disabled plugin row).
+      # 只安装、不启用的插件（等价于插件列表里被禁用的一行）。
       disabledPlugins = [ ];
-      # The profile's cordis.patch.yml entries (JSON — a valid YAML array;
-      # !!js expressions need an imperatively taken-over profile).
-      patches = [
+
+      # `cordis.patch.yml` 有两种归属方式，因为 dsh 会在运行时改写它：
+      #
+      #   `patches`     —— 配置。每次激活都重写，命令式改动无法在
+      #                    重新构建后保留。
+      #   `seedPatches` —— 初始内容。仅在文件不存在时写入，之后归 dsh
+      #                    和你所有。web UI 的模型选择器管理该文件时用这个。
+      seedPatches = [
         { id = "hmr"; disabled = true; }
       ];
+    };
+
+    services.web = {
+      enable = true;
+      profile = "work";
+      host = "127.0.0.1";   # 必须是单个具体本地地址，通配地址会被拒绝
+      port = 3080;
     };
   };
 }
@@ -232,11 +263,17 @@ NixOS 用法相同（`nixosModules.default`），外加一个 `programs.dsh.user
 
 说明：
 
-- 每个 profile 都以 `@deepseek-ai/dsh-base` 开头（设置
-  `programs.dsh.profiles.<name>.includeBase = false` 可完全控制该列表）；
-  随附的模板 bundle 列表供参考：web =
-  `@deepseek-ai/dsh-web-app`, acp = `@deepseek-ai/dsh-acp-app`, headless =
-  `@deepseek-ai/dsh-headless`, sdk = `@deepseek-ai/dsh-sdk-app`，
+- `profiles.<name>.template` 原样采用某个随附模板的 bundle 列表
+  （`web`、`acp`、`headless`、`sdk`、`sdk-minimal`）；不指定时，profile 以
+  `@deepseek-ai/dsh-base` 开头（设置
+  `profiles.<name>.includeBase = false` 可完全控制该列表），后接 `bundles`。
+  随附列表供参考：web = `@deepseek-ai/dsh-web-app`, acp =
+  `@deepseek-ai/dsh-acp-app`, headless = `@deepseek-ai/dsh-headless`, sdk =
+  `@deepseek-ai/dsh-sdk-app`，
+- `seedPatches` 与 `patches` 的区别：dsh 的 web UI、模型选择器和
+  `dsh plugin` 会在运行时改写 `cordis.patch.yml`，因此 patch 层属于活状态
+  的 profile 应使用 `seedPatches`（只写一次），而非 `patches`
+  （每次激活重写）。
 - 受管理的目录会在每次激活时刷新：manifest、patch 层和 node_modules 链接
   都会按配置重置，因此命令式改动（例如 `dsh plugin …`）无法在重新构建后
   保留——把某个 profile 从 `programs.dsh.profiles` 中移除，即可将其交给
