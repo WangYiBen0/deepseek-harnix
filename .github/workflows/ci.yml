@@ -1,6 +1,7 @@
 # Eval and build the flake's checks on pushes and PRs. The end-to-end check
 # includes a full deepseek-harness build (~20 minutes); the eval steps fail
-# fast on packaging mistakes.
+# fast on packaging mistakes. Both Linux architectures are built; aarch64-darwin
+# is only evaluated, because there is no macOS runner.
 name: CI
 
 on:
@@ -55,11 +56,13 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      # There is no macOS or aarch64 runner, so every non-native system is
-      # evaluated but never built: that still catches Linux-only attributes,
-      # missing inputs and unsupported dependencies before a user hits them.
+      # aarch64-linux is built natively by `checks-aarch64` and is still
+      # evaluated here, so an eval regression is reported even when that job is
+      # skipped. aarch64-darwin has no runner at all, so it is evaluated but
+      # never built: that still catches Linux-only attributes, missing inputs
+      # and unsupported dependencies before a user hits them.
       # `x86_64-linux` is the runner itself and is built by the `checks` job.
-      - name: Evaluate the foreign systems
+      - name: Evaluate the non-native systems
         run: |
           set -euo pipefail
           for system in aarch64-linux aarch64-darwin; do
@@ -102,3 +105,39 @@ jobs:
           nix build -L \
             .#packages.x86_64-linux.deepseek-harness-unstable.src \
             .#packages.x86_64-linux.deepseek-harness-unstable.pnpmDeps
+
+  # Same build set as `checks`, on a native arm64 runner: evaluating a
+  # foreign system proves the expressions type-check, not that the packages
+  # compile there. A native build is also the only workable option — a
+  # foreign-system eval cannot satisfy import-from-derivation, and emulating
+  # the full harness build under QEMU takes hours.
+  #
+  # `dsh-modules-vm` is deliberately not built here: hosted arm64 runners
+  # have no /dev/kvm, so the NixOS test would run under TCG, slowly enough to
+  # be a timeout rather than a signal.
+  checks-aarch64:
+    # Free for public repositories. A private fork without arm64 runners
+    # would leave this job queued forever, so it is skipped there instead.
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04-arm
+    needs: eval
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: End-to-end plugin check (builds deepseek-harness)
+        run: nix build -L .#checks.aarch64-linux.plugin-e2e
+      - name: Home Manager module check
+        run: nix build -L .#checks.aarch64-linux.home-manager-module
+      - name: Package version test
+        run: nix build -L .#packages.aarch64-linux.deepseek-harness.passthru.tests.version
+      # The pnpm store is fetched with `force_ignores_platform`, so this hash
+      # is architecture-independent; building it here proves that rather than
+      # assuming it.
+      - name: Unstable pin (source and dependency hashes)
+        run: |
+          nix build -L \
+            .#packages.aarch64-linux.deepseek-harness-unstable.src \
+            .#packages.aarch64-linux.deepseek-harness-unstable.pnpmDeps

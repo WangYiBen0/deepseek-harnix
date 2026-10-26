@@ -242,12 +242,14 @@
       }
       # Import-from-derivation cannot build a *foreign* system's derivation:
       # reading a registry tarball's package.json runs a per-system build at
-      # evaluation time, so evaluating aarch64 from an x86_64 machine cannot
-      # do it. This check is therefore pinned to the system CI actually builds
-      # on. The gate is a constant comparison on purpose: `builtins.current
-      # System` does not exist in a pure evaluation (which is what
-      # `nix flake check` is), so gating on it would silently drop the check
-      # from CI instead of keeping it.
+      # evaluation time, so a machine can only evaluate this check for its own
+      # system. `nix flake check --all-systems` evaluates every system from one
+      # machine, so the check can exist for exactly one system — one the CI
+      # evaluator runs. That is why it is pinned to x86_64-linux and why the
+      # native aarch64 job builds every check *except* this one. The gate is a
+      # constant comparison on purpose: `builtins.currentSystem` does not exist
+      # in a pure evaluation (which is what `nix flake check` is), so gating on
+      # it would silently drop the check from CI instead of keeping it.
       // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
         mkDshPlugin-npm-registry =
           pkgs.runCommand "dsh-mkplugin-npm-registry-check"

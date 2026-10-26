@@ -59,8 +59,9 @@ $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNam
 
 | `systems` 条目 | 状态 |
 | --- | --- |
-| `x86_64-linux` | CI 唯一会构建的系统：packages、全部 checks、端到端插件构建以及 NixOS VM 测试 |
-| `aarch64-linux`, `aarch64-darwin` | 每次 push 都在 CI 中求值（`nix flake check --all-systems`）；同样的包定义、同样的插件构建器，但既不构建也不运行任何东西——没有 ARM 或 macOS runner |
+| `x86_64-linux` | CI 会构建端到端插件检查、Home Manager 模块检查以及包测试 |
+| `aarch64-linux` | CI 在原生 ARM runner 上构建同一组检查；不运行 NixOS VM 测试（托管的 ARM runner 没有 KVM） |
+| `aarch64-darwin` | 每次 push 都在 CI 中求值（`nix flake check --all-systems`）；同样的包定义、同样的插件构建器，但既不构建也不运行任何东西——没有 macOS runner |
 
 未列出 Intel Mac：当前 nixpkgs 已移除 `x86_64-darwin`，因此对该系统求值会在
 这个 flake 的任何代码运行之前就中止。

@@ -65,8 +65,15 @@ nix flake check --all-systems
 
 A passing `nix flake check --all-systems --no-build` means the flake
 evaluates on `x86_64-linux`, `aarch64-linux` and `aarch64-darwin`. It does
-**not** mean anything builds or runs — only CI builds, and only on
-`x86_64-linux`.
+**not** mean anything builds or runs. CI builds the check set on
+`x86_64-linux` and, on a native ARM runner, on `aarch64-linux`;
+`aarch64-darwin` is only evaluated.
+
+The `aarch64-linux` build set mirrors the `x86_64-linux` one, minus
+`dsh-modules-vm` (hosted ARM runners have no KVM, so the VM test would fall
+back to TCG and time out) and minus the registry-tarball check. The latter is
+pinned to `x86_64-linux` because import-from-derivation cannot build a foreign
+system's tarball; `flake-modules/checks.nix` explains that gate.
 
 `nix flake check` is a pure evaluation. Anything gated on
 `builtins.currentSystem` is therefore invisible to it, which is why the

@@ -62,8 +62,9 @@ $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNam
 
 | `systems` entry | Status |
 | --- | --- |
-| `x86_64-linux` | the only system CI builds: packages, every check, the end-to-end plugin build and the NixOS VM test |
-| `aarch64-linux`, `aarch64-darwin` | evaluated in CI on every push (`nix flake check --all-systems`); same package definition, same plugin builder, but nothing is built or run — there is no ARM or macOS runner |
+| `x86_64-linux` | CI builds the end-to-end plugin check, the Home Manager module check and the package tests |
+| `aarch64-linux` | CI builds the same checks on a native ARM runner; the NixOS VM test is not run there (hosted ARM runners have no KVM) |
+| `aarch64-darwin` | evaluated in CI on every push (`nix flake check --all-systems`); same package definition, same plugin builder, but nothing is built or run — there is no macOS runner |
 
 Intel Macs are not listed: current nixpkgs dropped `x86_64-darwin`, so evaluating that system aborts
 before any of this flake's code runs.
