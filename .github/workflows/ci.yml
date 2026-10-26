@@ -24,6 +24,21 @@ jobs:
       - name: Evaluate all outputs, every declared system
         run: |
           set -euo pipefail
+          # `--no-build` evaluates every check to a derivation but will not
+          # perform the builds that import-from-derivation needs — and
+          # `pkgs.mkDshPlugin { npmName = …; }` unpacks a registry tarball to
+          # read its `package.json` at *evaluation* time. On a cold runner that
+          # leaves `mkDshPlugin-npm-registry` dying with "path … is not valid"
+          # before it can even be evaluated. `nix eval` does satisfy IFD, so
+          # force the checks to derivations first; this builds the manifest
+          # (and its tarball) and nothing else. `--no-build` below then finds
+          # the store already warm, which is what makes it able to evaluate
+          # that check at all.
+          #
+          # Only x86_64-linux needs warming: the one IFD check is pinned to it
+          # precisely because a foreign system's derivation cannot be built
+          # here (see flake-modules/checks.nix).
+          nix eval .#checks.x86_64-linux --apply 'builtins.mapAttrs (_: c: c.drvPath)'
           # --all-systems walks every entry in `systems`, not only the
           # runner's. A packaging mistake on aarch64 (a Linux-only attribute,
           # a missing input) surfaces here in minutes instead of in a user's
