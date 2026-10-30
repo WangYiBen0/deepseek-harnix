@@ -1,8 +1,0 @@
-{
-  "_comment": "Tracking pin for the `unstable` package set: the head of the upstream default branch (`branch`), plus the archive hash of that commit and the hash of its pnpm dependency store. Unlike `versions`, this object is not append-only — .github/workflows/update-versions.yml rewrites it whenever the branch moves, so `dshPackageSets.unstable` always builds the newest commit CI has seen. Refresh it by hand with `./scripts/prefetch-dsh-version.sh --unstable > /tmp/unstable.json && ./scripts/merge-unstable.py pkgs/unstable.json /tmp/unstable.json`.",
-  "branch": "master",
-  "version": "0.2.2-alpha.2",
-  "commit": "ce7073d51254c26cd63b22a60835b8f948deb447",
-  "srcHash": "sha256-jKg+3Fls/CJSn2xRH2hmSBupo9W97y952GAaywlUlio=",
-  "pnpmDepsHash": "sha256-D3dDgX55coJqEY31vwxiJuSFhlJeuEa3VfpN5Ooa+IE="
-}

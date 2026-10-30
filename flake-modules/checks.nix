@@ -10,7 +10,7 @@
     { pkgs, ... }:
     let
       set = flakelib.mkDshPackageSet pkgs flakelib.defaultRelease;
-      unstable = flakelib.mkDshPackageSet pkgs flakelib.unstableRelease;
+      gitSet = flakelib.mkDshPackageSet pkgs flakelib.gitRelease;
       e2ePlugin = set.mkDshPlugin { source = ../test/minimal-plugin; };
       e2eHarness = set.deepseek-harness.override { pluginList = [ e2ePlugin ]; };
       e2eProfileCfg = {
@@ -165,18 +165,18 @@
               echo "$namesPath" > $out
             '';
 
-        # The update workflow rewrites pkgs/unstable.json unattended, so its
+        # The update workflow rewrites pkgs/git.json unattended, so its
         # shape is checked here rather than trusted: a malformed pin would
         # otherwise only show up as a confusing failure in someone's build.
-        unstable-pin =
-          pkgs.runCommand "dsh-unstable-pin-eval"
+        git-pin =
+          pkgs.runCommand "dsh-git-pin-eval"
             {
               nativeBuildInputs = [ pkgs.jq ];
-              pin = builtins.toJSON flakelib.unstableRelease;
+              pin = builtins.toJSON flakelib.gitRelease;
               # What the package actually fetches. `version` alone would select
               # the tag archive of the latest release, which is exactly the bug
               # this guards against.
-              srcUrl = unstable.deepseek-harness.src.url;
+              srcUrl = gitSet.deepseek-harness.src.url;
               passAsFile = [
                 "pin"
                 "srcUrl"
@@ -188,7 +188,7 @@
               commit=$(jq -r .commit "$pinPath")
               grep -q "$commit" "$srcUrlPath"
               case "$(cat "$srcUrlPath")" in
-                */archive/refs/tags/*) echo "unstable source is a release tag archive" >&2; exit 1 ;;
+                */archive/refs/tags/*) echo "git source is a release tag archive" >&2; exit 1 ;;
               esac
               echo "$pinPath" > $out
             '';

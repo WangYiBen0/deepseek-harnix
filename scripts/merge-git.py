@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Refresh the unstable tracking pin in pkgs/unstable.json.
+"""Refresh the git tracking pin in pkgs/git.json.
 
-Usage: merge-unstable.py unstable.json new-entry.json
+Usage: merge-git.py git.json new-entry.json
 
 Reads the single JSON object printed by
-`prefetch-dsh-version.sh --unstable` and rewrites the pin in place, keeping
+`prefetch-dsh-version.sh --git` and rewrites the pin in place, keeping
 the descriptive `_comment` first. The pin is not append-only: it is the
 branch head, so a new commit always replaces the old one, and a rebase or a
 reverted upstream commit simply lands on the next run.
@@ -34,7 +34,7 @@ def main() -> None:
         sys.exit(f"{entry['commit']}: not a full commit hash")
 
     if all(doc.get(field) == entry[field] for field in FIELDS):
-        print(f"unstable pin unchanged ({entry['version']} {entry['commit'][:7]})")
+        print(f"git pin unchanged ({entry['version']} {entry['commit'][:7]})")
         return
 
     merged = {"_comment": doc["_comment"]}
@@ -44,7 +44,7 @@ def main() -> None:
         f.write("\n")
 
     print(
-        f"unstable pin -> {entry['version']} "
+        f"git pin -> {entry['version']} "
         f"({entry['branch']} {entry['commit'][:7]})"
     )
 

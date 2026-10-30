@@ -9,10 +9,22 @@
 # refreshed on every activation; plugin packages are symlinked into the
 # profile's node_modules from the store, so no package manager and no
 # network is ever involved.
-{ lib, pkgs, ... }:
+{
+  lib,
+  pkgs,
+  # The flake's own package set for this platform, injected by
+  # flake-modules/modules.nix. The module must not construct it: doing so
+  # meant re-deriving what the flake already publishes, and `pkgs.callPackage`
+  # silently injected nixpkgs' own `src` (a throw alias) and `commit` (the
+  # `commit-4.x` editor) into a derivation that owns both names.
+  dshPackages,
+  ...
+}:
 let
-  releases = (builtins.fromJSON (builtins.readFile ../pkgs/versions.json)).versions;
-  defaultRelease = lib.last releases;
+  # TODO(release): switch this to `latestStable` once dsh ships a stable
+  # release. Every packaged entry is currently a pre-release, so the stable
+  # lookup is null and "latest-rc" is what the module is actually offering.
+  defaultPackage = dshPackages.latestRc.deepseek-harness;
 in
 {
   options.programs.dsh = {
@@ -20,20 +32,8 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      # `lib.callPackageWith` with the names this derivation owns blanked out,
-      # not `pkgs.callPackage`: nixpkgs has unrelated packages under exactly
-      # these attribute names — `src` is a throw alias for
-      # `simple-revision-control`, and `commit` is the `commit` editor (a
-      # `commit-4.x` package) — so `callPackage` would inject them as the
-      # source and as the release commit. Both values come from
-      # `versions.json`, so neither may be injectable.
-      default =
-        lib.callPackageWith (pkgs // { src = null; commit = null; }) ../pkgs/deepseek-harness.nix
-          {
-            inherit (defaultRelease) version srcHash pnpmDepsHash;
-            commit = defaultRelease.commit or null;
-          };
-      defaultText = lib.literalMD "the newest release from `pkgs/versions.json`, built by this flake's `pkgs/deepseek-harness.nix`";
+      default = defaultPackage;
+      defaultText = lib.literalMD "the newest release candidate (`latestRc`) from this flake's package set";
       example = lib.literalExpression ''
         inputs.deepseek-harnix.legacyPackages.''${pkgs.stdenv.hostPlatform.system}
             .dshPackageSets.latest.deepseek-harness.override {

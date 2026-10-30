@@ -5,18 +5,18 @@ let
   # Compose the release-shaped entry for the branch head. The version stays
   # upstream's own string (so `dsh --version` and the version test are
   # truthful) and the commit is what distinguishes the build.
-  unstableRelease = {
-    inherit (unstablePin) version commit srcHash pnpmDepsHash;
-    srcUrl = "https://github.com/deepseek-ai/deepseek-harness/archive/${unstablePin.commit}.tar.gz";
-    nameSuffix = "unstable-${builtins.substring 0 7 unstablePin.commit}";
-    unstable = true;
+  gitRelease = {
+    inherit (gitPin) version commit srcHash pnpmDepsHash;
+    srcUrl = "https://github.com/deepseek-ai/deepseek-harness/archive/${gitPin.commit}.tar.gz";
+    nameSuffix = "git-${builtins.substring 0 7 gitPin.commit}";
+    git = true;
   };
 
   releases = (builtins.fromJSON (builtins.readFile ../pkgs/versions.json)).versions;
 
-  # Tracking pin for the `unstable` package set (branch head, rewritten by the
+  # Tracking pin for the `git` package set (branch head, rewritten by the
   # update workflow), kept separate from the append-only release list.
-  unstablePin = builtins.fromJSON (builtins.readFile ../pkgs/unstable.json);
+  gitPin = builtins.fromJSON (builtins.readFile ../pkgs/git.json);
 
   toIntOr0 = s: if builtins.match "[0-9]+" s != null then lib.toInt s else 0;
 
@@ -126,27 +126,35 @@ let
         lib.splitString " " (lib.replaceStrings [ "," "\n" "\t" ] [ " " " " " " ] range)
       )
     );
-in
-{
-  inherit releases versionCompare channelOf sanitizeVersion dshSatisfiesRange;
-  inherit unstableRelease;
-  defaultRelease = lib.last releases;
-
   # Newest release of a channel ("any", "stable", "rc", "beta", "alpha");
-  # null when the channel has no release.
+  # null when the channel has no release. Defined here rather than in the
+  # returned attrset because `defaultRelease` needs it, and attributes in one
+  # attrset cannot refer to each other.
   latestOf =
     channel:
     let
       candidates =
-        if channel == "any" then releases
-        else lib.filter (e: channelOf e.version == channel) releases;
+        if channel == "any" then
+          releases
+        else
+          lib.filter (e: channelOf e.version == channel) releases;
     in
     if candidates == [ ] then
       null
     else
-      lib.foldl' (
-        acc: e: if versionCompare e.version acc.version > 0 then e else acc
-      ) (lib.head candidates) candidates;
+      lib.foldl' (acc: e: if versionCompare e.version acc.version > 0 then e else acc)
+        (lib.head candidates)
+        candidates;
+
+  # TODO(release): switch to `latestOf "stable"` once dsh ships a stable
+  # release. Every packaged entry is currently a pre-release, so the module's
+  # default is honestly "the newest release candidate": a stable lookup is
+  # null today, and a `latestOf "any"` fallback would only mean "some rc".
+  defaultRelease = latestOf "rc";
+in
+{
+  inherit releases versionCompare channelOf sanitizeVersion dshSatisfiesRange latestOf;
+  inherit gitRelease defaultRelease;
 
   # One release entry (pkgs/versions.json) → one package set.
   mkDshPackageSet =

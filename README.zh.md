@@ -21,7 +21,7 @@
   `legacyPackages.<system>.dshPackageSets` 下的一个包集合，并提供
   `latest` / `latestRc` / `latestStable` / … 等 channel 快捷方式；其
   `deepseek-harness` 可用 `.override { pluginList = [ … ]; }` 覆盖，
-- **`unstable`** 构建上游默认分支的固定头部（`pkgs/unstable.json`），
+- **`git`** 构建上游默认分支的固定头部（`pkgs/git.json`），
   因此总有一个比最新发行版更新的包集合，
 - **`mkDshPlugin`** 可从 npm 包或任意源码树构建树外插件（"bundle"）——
   无需手动填写元数据，
@@ -38,7 +38,7 @@ $ nix run .#dsh
 
 # 某个 channel 的最新版——它们是真实存在的包，所以 `nix flake show` 能列出
 $ nix build .#deepseek-harness-rc
-$ nix build .#deepseek-harness-unstable      # upstream's default branch head
+$ nix build .#deepseek-harness-git      # upstream's default branch head
 
 # 构建指定发行版。没有任何东西被预先实例化：只有在点名该版本时才会从
 # 版本字符串生成包，因此 `packages` 不会随发行版列表增长。
@@ -52,7 +52,7 @@ $ nix eval --impure --raw --expr '((builtins.getFlake (toString ./.))
 # derivation，而 attribute set 套 attribute set 并不是 derivation。
 $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
 [ "0.1.0-rc.7" "0.1.0-rc.8" … "0.2.1-rc.2" "0.2.1-rc.3"
-  "latest" "latestAlpha" "latestRc" "unstable" ]
+  "latest" "latestAlpha" "latestRc" "git" ]
 ```
 
 ## 平台
@@ -78,7 +78,7 @@ $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNam
 除此之外——包、profile、插件构建和 CLI——都与平台无关。
 
 `dshPackageSets` 的键是精确的版本字符串加上 channel 快捷方式：
-`latest`（总体最新）、`unstable`（固定的分支头部）以及 `latest<Channel>`——
+`latest`（总体最新）、`git`（固定的分支头部）以及 `latest<Channel>`——
 `latestStable`、`latestRc`、`latestBeta`、`latestAlpha`——仅在对应 channel
 有发行版时存在。channel 由 semver 的预发布标签推导。
 
@@ -86,18 +86,18 @@ Flake 输出：
 
 | 输出 | 内容 |
 | --- | --- |
-| `packages.<system>.deepseek-harness` | 最新发行版（也是 `default`）——没有按发行版划分的包，因此列表不会随发行版数量增长 |
+| `packages.<system>.deepseek-harness` | 最新候选版（`latestRc`，也是 `default`）——dsh 尚无稳定发行版，见 `lib/default.nix` 中的 `TODO(release)`。没有按发行版划分的包，因此列表不会随发行版数量增长 |
 | `packages.<system>.deepseek-harness-<channel>` | `-stable`、`-rc`、`-beta`、`-alpha`：每个有发行版的 channel 一个别名，与其版本是同一个 derivation |
-| `packages.<system>.deepseek-harness-unstable` | 上游默认分支的固定头部（`pkgs/unstable.json`） |
+| `packages.<system>.deepseek-harness-git` | 上游默认分支的固定头部（`pkgs/git.json`） |
 | `apps.<system>.*` | `dsh`——无需安装即可运行 CLI |
 | `packages.<system>.dsh-plugin-registry` | 由精选插件目录构建的静态 npm registry 树 |
 | `legacyPackages.<system>.dshPackageSet` | 函数 `version -> package set`（仅限 Nix 代码；按需实例化一个发行版） |
 | `legacyPackages.<system>.dshPackage` | 函数 `version -> deepseek-harness` derivation（仅限 Nix 代码） |
 | `legacyPackages.<system>.dshPackageSets.<version>` | 每个发行版一个包集合，以精确版本字符串为键（每个条目是一个 thunk） |
-| `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.unstable` | channel 快捷方式（每个预发布标签的最新版，以及分支头部） |
+| `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.git` | channel 快捷方式（每个预发布标签的最新版，以及分支头部） |
 | `legacyPackages.<system>.dshPlugins` | 精选插件目录（`pkgs/dsh-plugins.nix`） |
 | `lib.mkDshPluginFor.<system>` | 针对指定系统的插件构建器（纯求值可用）；`lib.mkDshPlugin` 是 impure 形式 |
-| `overlays.default` | 将 `deepseek-harness`、`mkDshPlugin` 和 `dshPackageSets`（仅按版本为键，没有 `latest`/`unstable` 快捷方式）注入 pkgs |
+| `overlays.default` | 将 `deepseek-harness`、`mkDshPlugin` 和 `dshPackageSets`（仅按版本为键，没有 `latest`/`git` 快捷方式）注入 pkgs |
 | `nixosModules.default`, `homeModules.default` | 声明式 profile 和服务 |
 | `checks.<system>.*` | 共十个 check；其中 `plugin-e2e`、`dsh-modules-vm`、`home-manager-module` 是关键（见「开发」） |
 
@@ -426,7 +426,7 @@ $ ./scripts/prefetch-dsh-version.sh 0.2.1-rc.2 > new.jsonl
 $ python3 scripts/merge-versions.py pkgs/versions.json new.jsonl
 ```
 
-同一个 workflow 也会维护 `pkgs/unstable.json`。该文件是单个*移动*的固定点，
+同一个 workflow 也会维护 `pkgs/git.json`。该文件是单个*移动*的固定点，
 而不是列表：
 
 ```json
@@ -435,17 +435,17 @@ $ python3 scripts/merge-versions.py pkgs/versions.json new.jsonl
 ```
 
 它记录上游默认分支的头部（是 `master`，不是 `main`），
-`dshPackageSets.unstable` 构建的正是该 commit——所以它比最新发行版更新，
+`dshPackageSets.git` 构建的正是该 commit——所以它比最新发行版更新，
 又不是漂移不定的目标。手动刷新：
 
 ```console
-$ ./scripts/prefetch-dsh-version.sh --unstable > unstable.json
-$ python3 scripts/merge-unstable.py pkgs/unstable.json unstable.json
+$ ./scripts/prefetch-dsh-version.sh --git > git.json
+$ python3 scripts/merge-git.py pkgs/git.json git.json
 ```
 
 它的 `version` 保持上游自己的字符串（分支头部通常仍带着上个发行版的
 版本号），因此 `dsh --version` 和打包的版本测试依然如实；derivation 名称
-会加上 `-unstable-<shortrev>` 后缀，以便区分两次构建。
+会加上 `-git-<shortrev>` 后缀，以便区分两次构建。
 
 ## 开发
 
@@ -476,7 +476,7 @@ $ nix flake check --all-systems                # 本机执行全部 check，
 | `home-manager-module` | 生成的激活脚本与 systemd 单元 |
 | `mkDshPlugin-npm`、`mkDshPlugin-pnpm-workspace`、`mkDshPlugin-npm-registry` | 三条打包路径（npm lockfile、pnpm workspace 成员、registry tarball） |
 | `range-eval` | `dshVersionRange` 的算术，以及不兼容插件会被拒绝 |
-| `plugin-registry`、`unstable-pin`、`versions-json` | registry 树、移动的 `unstable` 固定点、发行版列表 |
+| `plugin-registry`、`git-pin`、`versions-json` | registry 树、移动的 `git` 固定点、发行版列表 |
 
 `test/minimal-plugin/` 是端到端检查使用的仅含 patch 的 bundle 夹具：
 它通过 `mkDshPlugin` 构建，用 `pluginList` 预置进 harness，通过声明式
@@ -541,7 +541,7 @@ NixOS/HM 模块在 `modules/`。
 | `pkgs/dsh-plugin-registry.nix`、`pkgs/dsh-registry-writer.js` | 精选目录的静态 npm registry 树 |
 | `pkgs/completions/` | bash/zsh/fish 脚本，以及驱动各 shell 的检查 |
 | `pkgs/versions.json` | 发行版 hash 列表（只追加，由 action 维护） |
-| `pkgs/unstable.json` | `dshPackageSets.unstable` 的移动固定点（由 action 维护） |
+| `pkgs/git.json` | `dshPackageSets.git` 的移动固定点（由 action 维护） |
 | `modules/options.nix` | 共享的 `programs.dsh` 选项 |
 | `modules/nixos.nix` | NixOS 模块（激活同步、用户服务） |
 | `modules/home-manager.nix` | Home Manager 模块（激活同步、用户服务） |
@@ -549,6 +549,6 @@ NixOS/HM 模块在 `modules/`。
 | `modules/dsh-profile-writer.js` | 写入 profile 的 `package.json`、`cordis.patch.yml` 和 `pnpm-workspace.yaml` |
 | `modules/profile-range-assertions.nix` | NixOS 模块的 `dshVersionRange` 断言 |
 | `modules/profile-sync.nix` | store 模板 → 可写 profile 目录同步 |
-| `scripts/prefetch-dsh-version.sh` | 单个发行版的 hash 计算（`--unstable` 取分支头部） |
+| `scripts/prefetch-dsh-version.sh` | 单个发行版的 hash 计算（`--git` 取分支头部） |
 | `scripts/merge-versions.py` | versions.json 合并辅助脚本 |
-| `scripts/merge-unstable.py` | 原地刷新 `unstable` 固定点 |
+| `scripts/merge-git.py` | 原地刷新 `git` 固定点 |

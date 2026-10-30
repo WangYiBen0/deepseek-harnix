@@ -96,15 +96,15 @@ jobs:
         run: nix build -L .#checks.x86_64-linux.home-manager-module
       - name: Package version test
         run: nix build -L .#packages.x86_64-linux.deepseek-harness.passthru.tests.version
-      # `unstable` tracks upstream's default branch, so its two fixed-output
+      # `git` tracks upstream's default branch, so its two fixed-output
       # hashes are the ones that go stale. Verify them without paying for the
       # full compile: the source archive and the pnpm dependency store are
       # exactly what breaks when that pin is wrong.
       - name: Unstable pin (source and dependency hashes)
         run: |
           nix build -L \
-            .#packages.x86_64-linux.deepseek-harness-unstable.src \
-            .#packages.x86_64-linux.deepseek-harness-unstable.pnpmDeps
+            .#packages.x86_64-linux.deepseek-harness-git.src \
+            .#packages.x86_64-linux.deepseek-harness-git.pnpmDeps
 
   # Same build set as `checks`, on a native arm64 runner: evaluating a
   # foreign system proves the expressions type-check, not that the packages
@@ -139,5 +139,5 @@ jobs:
       - name: Unstable pin (source and dependency hashes)
         run: |
           nix build -L \
-            .#packages.aarch64-linux.deepseek-harness-unstable.src \
-            .#packages.aarch64-linux.deepseek-harness-unstable.pnpmDeps
+            .#packages.aarch64-linux.deepseek-harness-git.src \
+            .#packages.aarch64-linux.deepseek-harness-git.pnpmDeps

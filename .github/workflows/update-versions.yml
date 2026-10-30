@@ -4,7 +4,7 @@
 #
 #   pkgs/versions.json   append-only release list — a new entry per upstream
 #                        dsh-v* tag that is not listed yet
-#   pkgs/unstable.json   tracking pin for the `unstable` package set — the head
+#   pkgs/git.json   tracking pin for the `git` package set — the head
 #                        of upstream's default branch (not append-only)
 #
 # Hashes come from scripts/prefetch-dsh-version.sh (commit-archive fetch plus
@@ -51,17 +51,17 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Runs first because `unstable` moves with every upstream commit, while
+      # Runs first because `git` moves with every upstream commit, while
       # releases only appear now and then: a run with no new tags still has
       # work to do here.
-      - name: Refresh the unstable pin
-        id: unstable
+      - name: Refresh the git pin
+        id: git
         run: |
           set -euo pipefail
-          ./scripts/prefetch-dsh-version.sh --unstable > unstable-entry.json
-          python3 scripts/merge-unstable.py pkgs/unstable.json unstable-entry.json
-          rm unstable-entry.json
-          if git diff --quiet -- pkgs/unstable.json; then
+          ./scripts/prefetch-dsh-version.sh --git > git-entry.json
+          python3 scripts/merge-git.py pkgs/git.json git-entry.json
+          rm git-entry.json
+          if git diff --quiet -- pkgs/git.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -108,16 +108,16 @@ jobs:
       # readable without opening the diff.
       - name: Name the change
         id: meta
-        if: steps.discover.outputs.versions != '' || steps.unstable.outputs.changed == 'true'
+        if: steps.discover.outputs.versions != '' || steps.git.outputs.changed == 'true'
         run: |
           set -euo pipefail
           subject=""
           if [ -n "${{ steps.discover.outputs.versions }}" ]; then
             subject="dsh $(echo ${{ steps.discover.outputs.versions }} | sed 's/ /, /g')"
           fi
-          if [ "${{ steps.unstable.outputs.changed }}" = "true" ]; then
-            unstable=$(jq -r '"unstable " + .version + " (" + (.commit[0:7]) + ")"' pkgs/unstable.json)
-            subject="${subject:+$subject, }${unstable}"
+          if [ "${{ steps.git.outputs.changed }}" = "true" ]; then
+            gitEntry=$(jq -r '"git " + .version + " (" + (.commit[0:7]) + ")"' pkgs/git.json)
+            subject="${subject:+$subject, }${gitEntry}"
           fi
           echo "title=feat(pkgs): package ${subject}" >> "$GITHUB_OUTPUT"
 
@@ -146,11 +146,11 @@ jobs:
             - `pkgs/versions.json` gains one entry per new upstream
               `dsh-v*` tag; each becomes a package set and the newest becomes
               the default `packages.*.deepseek-harness`.
-            - `pkgs/unstable.json` tracks the head of upstream's default
-              branch, which is what `dshPackageSets.unstable` builds.
+            - `pkgs/git.json` tracks the head of upstream's default
+              branch, which is what `dshPackageSets.git` builds.
           add-paths: |
             pkgs/versions.json
-            pkgs/unstable.json
+            pkgs/git.json
           commit-message: |
             ${{ steps.meta.outputs.title }}
 

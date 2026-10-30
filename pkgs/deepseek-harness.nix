@@ -52,13 +52,13 @@
   # not, which is why versions.json carries the commit for every entry.
   commit ? null,
 
-  # Source override for the `unstable` channel: the archive URL of a specific
+  # Source override for the `git` channel: the archive URL of a specific
   # commit (`/archive/<sha>.tar.gz`) instead of the tag archive derived from
   # `version`. Still a commit-pinned tarball, so it stays deterministic.
   srcUrl ? null,
 
   # Appended to the derivation name for a channel build that shares upstream's
-  # version string (again `unstable`). `version` keeps upstream's value, so
+  # version string (again `git`). `version` keeps upstream's value, so
   # `dsh --version` output and passthru.tests.version stay truthful while the
   # store path and `nix flake show` still tell the two apart.
   nameSuffix ? null,
@@ -104,7 +104,7 @@ stdenv.mkDerivation (finalAttrs: {
       # (fetchFromGitHub falls back to a git clone for commit revs, which is
       # both slow and — with leaveDotGit — not reproducible.)
       fetchzip {
-        # A release is the tag archive for its version; `unstable` passes the
+        # A release is the tag archive for its version; `git` passes the
         # archive of one specific commit instead (still a commit-pinned
         # tarball, so the fetch stays deterministic).
         url =
