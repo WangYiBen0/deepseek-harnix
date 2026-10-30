@@ -431,8 +431,9 @@ runs daily: it lists upstream `dsh-v*` tags, and for each version missing
 from the list computes the source and pnpm-dependency hashes with
 [`scripts/prefetch-dsh-version.sh`](scripts/prefetch-dsh-version.sh) (the
 standard two-pass fake-hash trick, against this flake's pinned nixpkgs), then
-opens a pull request that appends the entries (`direct_push=true` on a
-manual dispatch pushes straight to the default branch instead). The default
+opens a pull request that appends the entries, and enables auto-merge so it
+lands once CI passes (`main` requires a pull request and its checks, so there
+is no direct-push path). The default
 `packages.*.deepseek-harness` is always the **last** entry.
 
 The list covers **every** historical upstream tag, so old releases stay

@@ -8,9 +8,8 @@
 #                        of upstream's default branch (not append-only)
 #
 # Hashes come from scripts/prefetch-dsh-version.sh (commit-archive fetch plus
-# pnpm dependency store). The result lands as a pull request by default; pass
-# direct_push=true on a workflow_dispatch run to commit straight to the
-# default branch.
+# pnpm dependency store). The result always lands as a pull request: `main`
+# requires one, so there is no direct-push path to choose.
 name: Update dsh versions
 
 on:
@@ -18,11 +17,6 @@ on:
     # Daily, a little after upstream's usual release hours.
     - cron: "17 5 * * *"
   workflow_dispatch:
-    inputs:
-      direct_push:
-        description: "Commit directly to the default branch instead of opening a PR"
-        type: boolean
-        default: false
 
 concurrency:
   group: update-dsh-versions
@@ -41,6 +35,17 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+
+      # Every push this workflow makes has to trigger CI: `main` requires the
+      # pull request's checks before it can merge, and a branch pushed with the
+      # default GITHUB_TOKEN triggers no workflows at all. The App token is what
+      # makes the bot's push visible to CI.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - uses: cachix/install-nix-action@v31
         with:
@@ -117,9 +122,14 @@ jobs:
           echo "title=feat(pkgs): package ${subject}" >> "$GITHUB_OUTPUT"
 
       - name: Open pull request
-        if: steps.meta.outputs.title != '' && !inputs.direct_push
+        if: steps.meta.outputs.title != ''
         uses: peter-evans/create-pull-request@v7
         with:
+          # The App token, not the default GITHUB_TOKEN: a branch pushed with
+          # GITHUB_TOKEN triggers no workflows, so no CI run would appear on the
+          # pull request, `main`'s required checks would never report, and the
+          # auto-merge below could never fire.
+          token: ${{ steps.app-token.outputs.token }}
           branch: chore/update-dsh-versions
           delete-branch: true
           title: ${{ steps.meta.outputs.title }}
@@ -147,16 +157,18 @@ jobs:
             Hashes from scripts/prefetch-dsh-version.sh against the upstream
             dsh-v* tags and the default branch head.
 
-      - name: Push directly
-        if: steps.meta.outputs.title != '' && inputs.direct_push
+      # Deferred auto-merge, scoped to this bot's own branch. `--auto` rather
+      # than an immediate merge: `main` requires the pull request's checks, so
+      # merging now would be rejected while CI is still running.
+      - name: Enable auto-merge
+        if: steps.meta.outputs.title != ''
         env:
-          GIT_AUTHOR_NAME: github-actions[bot]
-          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
-          GIT_COMMITTER_NAME: github-actions[bot]
-          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          git add pkgs/versions.json pkgs/unstable.json
-          git commit -m "${{ steps.meta.outputs.title }}" \
-            -m "Hashes from scripts/prefetch-dsh-version.sh against the upstream dsh-v* tags and the default branch head."
-          git push
+          branch=chore/update-dsh-versions
+          if [ "$(gh pr view "$branch" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "true" ]; then
+            echo "auto-merge is already enabled for $branch"
+            exit 0
+          fi
+          gh pr merge "$branch" --auto --rebase
