@@ -52,7 +52,7 @@ nix-instantiate --parse <file.nix>
 nix flake check --all-systems --no-build
 
 # 3. Fast checks (seconds, no network, no dsh build):
-nix build .#checks.x86_64-linux.{versions-json,unstable-pin,range-eval,plugin-registry}
+nix build .#checks.x86_64-linux.{versions-json,git-pin,range-eval,plugin-registry}
 
 # 4. Real checks (these build dsh and can take many minutes):
 nix build .#checks.x86_64-linux.plugin-e2e
@@ -88,18 +88,20 @@ than to the current one. Do not "improve" that gate back to
   those fail for environmental reasons, not because of your change. Do not
   treat that failure as a code bug, and do not "fix" it by loosening hashes.
 - Fixed-output hashes are the contract with upstream. A hash that no longer
-  matches means upstream moved (almost always for `pkgs/unstable.json`), not
+  matches means upstream moved (almost always for `pkgs/git.json`), not
   that the hash "needs updating" to whatever builds today.
 
-## Version data: `pkgs/versions.json` and `pkgs/unstable.json`
+## Version data: `pkgs/versions.json` and `pkgs/git.json`
 
 `pkgs/versions.json` is **append-only**: one entry per packaged upstream
-release, ordered, and the **last entry is the flake's default**. Never
+release, ordered. The flake's default is `latestRc` (`lib/default.nix`),
+not the last entry: while every packaged release is a pre-release, the
+default must name the channel it comes from. Never
 reorder it, never rewrite existing entries, never drop one — the hashes are
 part of the derivation identity, so rewriting an entry changes what everyone
 else already built.
 
-`pkgs/unstable.json` is the opposite: a single **moving** pin for the head of
+`pkgs/git.json` is the opposite: a single **moving** pin for the head of
 upstream's default branch (`master`, not `main`). It is rewritten in place.
 
 Both are normally maintained by
@@ -109,12 +111,12 @@ Both are normally maintained by
 $ ./scripts/prefetch-dsh-version.sh 0.2.1-rc.2 > new.jsonl
 $ python3 scripts/merge-versions.py pkgs/versions.json new.jsonl
 
-$ ./scripts/prefetch-dsh-version.sh --unstable > unstable.json
-$ python3 scripts/merge-unstable.py pkgs/unstable.json unstable.json
+$ ./scripts/prefetch-dsh-version.sh --git > git.json
+$ python3 scripts/merge-git.py pkgs/git.json git.json
 ```
 
 Upstream tags the form `dsh-v<version>`, and a tagged commit is not the same
-as the branch head carrying that version string — `pkgs/unstable.json`
+as the branch head carrying that version string — `pkgs/git.json`
 legitimately names a version that a release tag also names.
 
 ## Invariants that are easy to break

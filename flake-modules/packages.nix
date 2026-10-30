@@ -23,10 +23,11 @@ let
   upperFirst =
     s: (lib.toUpper (builtins.substring 0 1 s)) + (builtins.substring 1 (builtins.stringLength s) s);
 
-  # The `unstable` package set: the pinned head of the upstream branch (see
+  # The `git` package set: the pinned head of the upstream branch (see
   # pkgs/unstable.json), so this builds the git repository rather than a
-  # released tag.
-  unstableSetFor = pkgs: flakelib.mkDshPackageSet pkgs flakelib.unstableRelease;
+  # released tag. It used to be spelled `unstable`; the name says what the
+  # source *is* rather than how reliable it is.
+  gitSetFor = pkgs: flakelib.mkDshPackageSet pkgs flakelib.gitRelease;
 
   channels = [ "stable" "rc" "beta" "alpha" ];
 
@@ -93,7 +94,7 @@ in
 
         dshPackageSets = {
           latest = flakelib.mkDshPackageSet pkgs (flakelib.latestOf "any");
-          unstable = unstableSetFor pkgs;
+          git = gitSetFor pkgs;
         } // channelSets pkgs // lib.listToAttrs (
           map (release: lib.nameValuePair release.version (packageSetFor pkgs release.version)) flakelib.releases
         );
@@ -115,7 +116,7 @@ in
       packages = {
         deepseek-harness = (flakelib.mkDshPackageSet pkgs flakelib.defaultRelease).deepseek-harness;
         default = config.packages.deepseek-harness;
-        deepseek-harness-unstable = (unstableSetFor pkgs).deepseek-harness;
+        deepseek-harness-git = (gitSetFor pkgs).deepseek-harness;
 
         # Static npm registry tree built from the curated catalog — the
         # plugin-manager "subscription link".

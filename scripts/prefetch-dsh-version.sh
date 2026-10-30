@@ -3,7 +3,7 @@
 # entry for versions.json.
 #
 # Usage: prefetch-dsh-version.sh <version> [version ...]
-#        prefetch-dsh-version.sh --unstable [branch]
+#        prefetch-dsh-version.sh --git [branch]
 #
 # For each version this resolves the exact tag commit, fetches the source as
 # a commit-pinned tarball (deterministic, unlike the leaveDotGit git-clone
@@ -11,19 +11,19 @@
 # single download: build the fetcher with an empty hash — the fixed-output
 # failure leaves the produced store path behind — and hash that path.
 #
-# `--unstable` does the same for a branch head instead of a tag (the source
+# `--git` does the same for a branch head instead of a tag (the source
 # URL is the commit archive, the version comes from the upstream
-# package.json at that commit) and prints the entry for pkgs/unstable.json
+# package.json at that commit) and prints the entry for pkgs/git.json
 # rather than append-only versions.json.
 #
 # Environment:
 #   DSH_REPO      upstream repo (default deepseek-ai/deepseek-harness)
-#   DSH_BRANCH    branch for --unstable (default main)
+#   DSH_BRANCH    branch for --git (default main)
 #   NIX_FLAGS     extra flags for every nix call
 #
 # Output: one JSON object per line (jq-ready), e.g.
 #   {"version":"0.2.1-rc.2","rev":"dsh-v0.2.1-rc.2","commit":"<sha>","srcHash":"sha256-...","pnpmDepsHash":"sha256-..."}
-# or, for --unstable:
+# or, for --git:
 #   {"branch":"main","version":"0.2.1-rc.4","commit":"<sha>","srcHash":"sha256-...","pnpmDepsHash":"sha256-..."}
 
 set -euo pipefail
@@ -150,13 +150,13 @@ EOF
 
 fake_hash=sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
-# ── unstable mode ────────────────────────────────────────────────────────────
-# `--unstable [branch]` pins the head of a branch (default main) instead of a
+# ── git mode ────────────────────────────────────────────────────────────
+# `--git [branch]` pins the head of a branch (default main) instead of a
 # release tag. The source is the commit archive, which is what makes the
-# `unstable` package set "the git repository" rather than a release tarball;
+# `git` package set "the git repository" rather than a release tarball;
 # the version string comes from the upstream package.json at that commit, so
 # the built `dsh --version` stays truthful.
-if [ "${1:-}" = "--unstable" ]; then
+if [ "${1:-}" = "--git" ]; then
   # Which branch: explicit argument, then $DSH_BRANCH, then the repository's
   # own default branch (upstream's is `master`, not `main`).
   branch=${2:-${DSH_BRANCH:-}}

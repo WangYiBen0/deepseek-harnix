@@ -22,8 +22,8 @@ build from npm or any source tree, and **profiles** are managed declaratively.
   `latest` / `latestRc` / `latestStable` / … channel shortcuts; its
   `deepseek-harness` is overridable with
   `.override { pluginList = [ … ]; }`,
-- **`unstable`** builds the pinned head of upstream's default branch
-  (`pkgs/unstable.json`), so there is always a set newer than the last
+- **`git`** builds the pinned head of upstream's default branch
+  (`pkgs/git.json`), so there is always a set newer than the last
   release,
 - **`mkDshPlugin`** builds an out-of-tree plugin ("bundle") from an npm
   package or any source tree — no manual metadata,
@@ -40,7 +40,7 @@ $ nix run .#dsh
 
 # A channel's newest — these are real packages, so `nix flake show` lists them
 $ nix build .#deepseek-harness-rc
-$ nix build .#deepseek-harness-unstable      # upstream's default branch head
+$ nix build .#deepseek-harness-git      # upstream's default branch head
 
 # Build a specific release. Nothing is pre-instantiated: the package is
 # generated from the version string when it is named, so `packages` never
@@ -55,7 +55,7 @@ $ nix eval --impure --raw --expr '((builtins.getFlake (toString ./.))
 # prints derivations, and an attribute set of attribute sets is not one.
 $ nix eval .#legacyPackages.x86_64-linux.dshPackageSets --apply builtins.attrNames
 [ "0.1.0-rc.7" "0.1.0-rc.8" … "0.2.1-rc.2" "0.2.1-rc.3"
-  "latest" "latestAlpha" "latestRc" "unstable" ]
+  "latest" "latestAlpha" "latestRc" "git" ]
 ```
 
 ## Platforms
@@ -82,7 +82,7 @@ Everything else — the package, profiles, plugin building and the CLI — is
 platform-independent.
 
 `dshPackageSets` keys are the exact version strings plus channel shortcuts:
-`latest` (newest overall), `unstable` (the pinned branch head) and
+`latest` (newest overall), `git` (the pinned branch head) and
 `latest<Channel>` — `latestStable`, `latestRc`, `latestBeta`, `latestAlpha`
 — each present only when that channel has a release. Channels are derived
 from the semver pre-release label.
@@ -91,18 +91,18 @@ Flake outputs:
 
 | Output | Contents |
 | --- | --- |
-| `packages.<system>.deepseek-harness` | newest release (also `default`) — no per-release packages, so the list never grows with the release count |
+| `packages.<system>.deepseek-harness` | newest release candidate (`latestRc`, also `default`) — dsh has no stable release yet; see the `TODO(release)` in `lib/default.nix`. No per-release packages, so the list never grows with the release count |
 | `packages.<system>.deepseek-harness-<channel>` | `-stable`, `-rc`, `-beta`, `-alpha`: one alias per channel that has a release, same derivation as its version |
-| `packages.<system>.deepseek-harness-unstable` | the pinned head of upstream's default branch (`pkgs/unstable.json`) |
+| `packages.<system>.deepseek-harness-git` | the pinned head of upstream's default branch (`pkgs/git.json`) |
 | `apps.<system>.*` | `dsh` — run the CLI without installing |
 | `packages.<system>.dsh-plugin-registry` | static npm registry tree built from the curated plugin catalog |
 | `legacyPackages.<system>.dshPackageSet` | function `version -> package set` (Nix code only; instantiates one release on demand) |
 | `legacyPackages.<system>.dshPackage` | function `version -> deepseek-harness` derivation (Nix code only) |
 | `legacyPackages.<system>.dshPackageSets.<version>` | package set per release, keyed by the exact version string (each entry is a thunk) |
-| `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.unstable` | channel shortcuts (newest per pre-release label, plus the branch head) |
+| `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.git` | channel shortcuts (newest per pre-release label, plus the branch head) |
 | `legacyPackages.<system>.dshPlugins` | curated plugin catalog (`pkgs/dsh-plugins.nix`) |
 | `lib.mkDshPluginFor.<system>` | plugin builder for a named system (pure); `lib.mkDshPlugin` is the impure form |
-| `overlays.default` | `deepseek-harness`, `mkDshPlugin` and `dshPackageSets` (version-keyed only — no `latest`/`unstable` shortcuts) into a pkgs |
+| `overlays.default` | `deepseek-harness`, `mkDshPlugin` and `dshPackageSets` (version-keyed only — no `latest`/`git` shortcuts) into a pkgs |
 | `nixosModules.default`, `homeModules.default` | declarative profiles and services |
 | `checks.<system>.*` | ten checks; `plugin-e2e`, `dsh-modules-vm` and `home-manager-module` are the load-bearing ones (see Development) |
 
@@ -450,7 +450,7 @@ $ ./scripts/prefetch-dsh-version.sh 0.2.1-rc.2 > new.jsonl
 $ python3 scripts/merge-versions.py pkgs/versions.json new.jsonl
 ```
 
-The same workflow also keeps `pkgs/unstable.json` up to date. That file is a
+The same workflow also keeps `pkgs/git.json` up to date. That file is a
 single *moving* pin, not a list:
 
 ```json
@@ -459,19 +459,19 @@ single *moving* pin, not a list:
 ```
 
 It names the head of upstream's default branch (`master`, not `main`), and
-`dshPackageSets.unstable` builds exactly that commit — so the set is newer
+`dshPackageSets.git` builds exactly that commit — so the set is newer
 than the last release without being a floating target. Refresh it by hand
 with:
 
 ```console
-$ ./scripts/prefetch-dsh-version.sh --unstable > unstable.json
-$ python3 scripts/merge-unstable.py pkgs/unstable.json unstable.json
+$ ./scripts/prefetch-dsh-version.sh --git > git.json
+$ python3 scripts/merge-git.py pkgs/git.json git.json
 ```
 
 Its `version` stays upstream's own string (the branch head usually still
 carries the last release's version), so `dsh --version` and the packaged
 version test remain truthful; the derivation name gets an
-`-unstable-<shortrev>` suffix to keep the two builds apart.
+`-git-<shortrev>` suffix to keep the two builds apart.
 
 ## Development
 
@@ -503,7 +503,7 @@ Checks worth knowing:
 | `home-manager-module` | the generated activation script and systemd unit |
 | `mkDshPlugin-npm`, `mkDshPlugin-pnpm-workspace`, `mkDshPlugin-npm-registry` | the three packaging paths (npm lockfile, pnpm workspace member, registry tarball) |
 | `range-eval` | `dshVersionRange` arithmetic, and that an incompatible plugin is rejected |
-| `plugin-registry`, `unstable-pin`, `versions-json` | the registry tree, the moving `unstable` pin, and the release list |
+| `plugin-registry`, `git-pin`, `versions-json` | the registry tree, the moving `git` pin, and the release list |
 
 `test/minimal-plugin/` is the patch-only bundle fixture used by the end-to-end
 check: it builds through `mkDshPlugin`, is baked into the harness with
@@ -571,7 +571,7 @@ and the NixOS/HM modules in `modules/`.
 | `pkgs/dsh-plugin-registry.nix`, `pkgs/dsh-registry-writer.js` | static npm registry tree for the curated catalog |
 | `pkgs/completions/` | bash/zsh/fish scripts plus the check that drives each shell |
 | `pkgs/versions.json` | the release hash list (append-only, action-maintained) |
-| `pkgs/unstable.json` | the moving pin for `dshPackageSets.unstable` (action-maintained) |
+| `pkgs/git.json` | the moving pin for `dshPackageSets.git` (action-maintained) |
 | `modules/options.nix` | shared `programs.dsh` options |
 | `modules/nixos.nix` | NixOS module (activation sync, user service) |
 | `modules/home-manager.nix` | Home Manager module (activation sync, user service) |
@@ -579,6 +579,6 @@ and the NixOS/HM modules in `modules/`.
 | `modules/dsh-profile-writer.js` | writes a profile's `package.json`, `cordis.patch.yml` and `pnpm-workspace.yaml` |
 | `modules/profile-range-assertions.nix` | `dshVersionRange` assertion for the NixOS module |
 | `modules/profile-sync.nix` | store template → writable profile directory sync |
-| `scripts/prefetch-dsh-version.sh` | hash computation for a release (`--unstable` for the branch head) |
+| `scripts/prefetch-dsh-version.sh` | hash computation for a release (`--git` for the branch head) |
 | `scripts/merge-versions.py` | versions.json merge helper |
-| `scripts/merge-unstable.py` | refreshes the `unstable` pin in place |
+| `scripts/merge-git.py` | refreshes the `git` pin in place |
