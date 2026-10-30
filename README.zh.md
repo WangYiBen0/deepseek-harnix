@@ -409,8 +409,8 @@ programs.dsh.services.web.enable = true;
 每天运行：它会列出上游 `dsh-v*` 标签，并对列表中缺失的每个版本，用
 [`scripts/prefetch-dsh-version.sh`](scripts/prefetch-dsh-version.sh) 计算源码
 和 pnpm 依赖的 hash（标准的两次遍历 fake-hash 技巧，针对该 flake 锁定的
-nixpkgs），然后开一个 pull request 追加这些条目（手动 dispatch 时
-`direct_push=true` 会直接推送到默认分支）。默认的
+nixpkgs），然后开一个 pull request 追加这些条目，并开启自动合并，让它在 CI
+通过后自行合入（`main` 要求 pull request 及其检查，因此不再有直接推送的路径）。默认的
 `packages.*.deepseek-harness` 始终是**最后**一条。
 
 该列表覆盖**每一个**历史上的上游标签，因此旧发行版仍然可构建、可寻址——
