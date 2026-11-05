@@ -361,13 +361,21 @@ $ cd result && python3 -m http.server 4873
 
 ## Shell 补全
 
-dsh 本身不带补全支持（commander 也没有），因此该包会把镜像 0.2.x CLI 接口的
-静态脚本安装到标准路径——`share/bash-completion/completions/dsh`,
+dsh 本身不带补全支持（commander 也没有），因此该包会把脚本安装到标准路径——
+`share/bash-completion/completions/dsh`,
 `share/zsh/site-functions/_dsh`, `share/fish/vendor_completions.d/dsh.fish`。
-它们补全启动器参数、`plugin` 子命令以及 profile 名称
-（运行时从 `$DSH_HOME/profiles` 读取，并与随附的模板名称合并）。把该包放入
-`environment.systemPackages` / `home.packages` 后，bash-completion、zsh 和
-fish 会自动识别它们。
+它们补全启动器参数、profile 名称（运行时从 `$DSH_HOME/profiles` 读取，并与
+随附的模板名称合并），以及 `--from-default-profile` 的模板。
+
+`dsh plugin` 没有被重新实现：它把参数转发给 pnpm，所以脚本也把参数转发给
+pnpm 自己的 `completion-server`。于是 pnpm 的命令列表、每个命令的参数列表
+（包括 `add` 的 `--save-dev`）以及感知 workspace 的补全，都跟随随 dsh 安装的
+那个 pnpm，而不是一份冻在 shell 脚本里的清单。dsh 自己处理的部分——
+`--profile`、`-h`，以及 `allow-version` / `revoke-version` /
+`version-exemptions` 这三个动词——与它们并列补全。
+
+把该包放入 `environment.systemPackages` / `home.packages` 后，
+bash-completion、zsh 和 fish 会自动识别它们。
 
 ## Web UI 作为 systemd 用户服务
 

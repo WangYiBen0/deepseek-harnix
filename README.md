@@ -382,13 +382,23 @@ Supported syntax: whitespace/comma-separated `>= > <= < =` comparators plus
 ## Shell completions
 
 dsh ships no completion support (commander has none either), so the package
-installs static scripts mirroring the 0.2.x CLI surface into the standard
-paths — `share/bash-completion/completions/dsh`,
-`share/zsh/site-functions/_dsh`, `share/fish/vendor_completions.d/dsh.fish`.
-They complete the launcher flags, the `plugin` subcommand, and profile names
-(read from `$DSH_HOME/profiles` at runtime, merged with the shipped template
-names). With the package in `environment.systemPackages` /
-`home.packages`, bash-completion, zsh, and fish pick them up automatically.
+installs scripts into the standard paths —
+`share/bash-completion/completions/dsh`, `share/zsh/site-functions/_dsh`,
+`share/fish/vendor_completions.d/dsh.fish`. They complete the launcher flags,
+profile names (read from `$DSH_HOME/profiles` at runtime, merged with the
+shipped template names), and `--from-default-profile` templates.
+
+`dsh plugin` is not reimplemented: it forwards its arguments to pnpm, so the
+scripts forward them to pnpm's own `completion-server` too. pnpm's command
+list, its per-command option lists (including `--save-dev` for `add`) and its
+workspace-aware completions therefore follow the pnpm actually installed with
+dsh, instead of a list frozen into a shell script. The dsh-owned parts —
+`--profile`, `-h`, and the `allow-version` / `revoke-version` /
+`version-exemptions` verbs that dsh handles itself — are completed
+alongside them.
+
+With the package in `environment.systemPackages` / `home.packages`,
+bash-completion, zsh, and fish pick them up automatically.
 
 ## Web UI as a systemd user service
 
