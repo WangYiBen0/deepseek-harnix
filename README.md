@@ -100,11 +100,11 @@ Flake outputs:
 | `legacyPackages.<system>.dshPackage` | function `version -> deepseek-harness` derivation (Nix code only) |
 | `legacyPackages.<system>.dshPackageSets.<version>` | package set per release, keyed by the exact version string (each entry is a thunk) |
 | `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.git` | channel shortcuts (newest per pre-release label, plus the branch head) |
-| `legacyPackages.<system>.dshPlugins` | curated plugin catalog (`pkgs/dsh-plugins.nix`) |
+| `legacyPackages.<system>.dshPlugins` | curated plugin catalog (`pkgs/dsh-plugin-declarations.nix` + `pkgs/plugins.lock.json`) |
 | `lib.mkDshPluginFor.<system>` | plugin builder for a named system (pure); `lib.mkDshPlugin` is the impure form |
 | `overlays.default` | `deepseek-harness`, `mkDshPlugin` and `dshPackageSets` (version-keyed only — no `latest`/`git` shortcuts) into a pkgs |
 | `nixosModules.default`, `homeModules.default` | declarative profiles and services |
-| `checks.<system>.*` | ten checks; `plugin-e2e`, `dsh-modules-vm` and `home-manager-module` are the load-bearing ones (see Development) |
+| `checks.<system>.*` | eleven checks; `plugin-e2e`, `dsh-modules-vm` and `home-manager-module` are the load-bearing ones (see Development) |
 
 Each package set exposes `deepseek-harness` (alias `dsh`), `withPlugins`,
 `mkDshPlugin`, and `version`.
@@ -165,15 +165,19 @@ mkDshPlugin {
   # One of (exactly one; `source` is the source-tree form):
   source = fetchFromGitHub { … };       # any source tree / fetcher result
   npmName = "@acme/dsh-plugin-acme";    # or fetch from the npm registry, with
-  npmVersion = "1.2.3";                 #   the version and the
-  hash = "sha256-…";                    #   registry tarball hash
+  npmVersion = "1.2.3";                 #   a version — or "latest", resolved
+  hash = "sha256-…";                    #   by `pluginLock` — and the tarball hash
+
+  # The DRY form: no version, no hashes, one generated file.
+  pluginLock = ./plugins.lock.json;     # `scripts/lock-dsh-plugins.py` writes it
+  lockKey = "@acme/dsh-plugin-acme";    # defaults to `npmName`
 
   # Optional:
   packageDir = "packages/plugin";       # workspace member (monorepos)
   pname = "…";                          # override metadata detected from
   version = "…";                        #   package.json
   pnpmDepsHash = lib.fakeHash;          # deps store hash (pnpm projects)
-  npmDepsHash = lib.fakeHash;           # … or npm / yarnDepsHash (yarn)
+  npmDepsHash = lib.fakeHash;           # … or yarnDepsHash (yarn)
   npmLockfile = ./package-lock.json;    # lock for a tarball shipping none
   npmBuildScript = "build";             # also used as pnpmBuildScript
   npmBuild = false;                     # rebuild a tarball that ships lib/
@@ -189,6 +193,12 @@ mkDshPlugin {
   meta = { … };
 }
 ```
+
+With `pluginLock`, `npmVersion = "latest"` means "the version the lock froze":
+the call site keeps tracking the tag while `plugins.lock.json` holds the
+concrete version, the tarball hash, the dependency-store hash and (for a
+tarball that ships no lockfile) the resolved `package-lock.json`. An argument
+still wins over the lock, so a one-off pin needs no lock edit.
 
 Behavior:
 
@@ -341,10 +351,10 @@ rather than a command that would guess.
 
 ## Plugin catalog and registry subscription
 
-`pkgs/dsh-plugins.nix` is the curated plugin catalog; the flake exposes it as
-`dshPlugins` and builds it into `dsh-plugin-registry` — a **static npm
-registry tree** that dsh's plugin manager can install from (dsh registries
-are npm registries, per its `--registry` handling):
+`pkgs/dsh-plugin-declarations.nix` is the curated plugin catalog; the flake
+exposes it as `dshPlugins` and builds it into `dsh-plugin-registry` — a
+**static npm registry tree** that dsh's plugin manager can install from (dsh
+registries are npm registries, per its `--registry` handling):
 
 ```console
 $ nix build .#dsh-plugin-registry
@@ -357,8 +367,26 @@ Each package gets an npm metadata document (`index.json` with
 `dist.tarball`/`shasum`/`integrity`) and a tarball; `catalog.json`
 summarizes the list. `registryBaseUrl` is overridable:
 `dsh-plugin-registry.override { registryBaseUrl = "https://plugins.example.com"; }`.
-Point the catalog at your own plugins by editing `pkgs/dsh-plugins.nix`
-(entries are plain `mkDshPlugin` calls).
+
+The catalog is split in two, so a plugin is declared once and pinned once:
+
+| File | Holds | Written by |
+| --- | --- | --- |
+| `pkgs/dsh-plugin-declarations.nix` | *what* a plugin is: `npmName`, the tag it tracks (`"latest"`), its source tree, `dshVersionRange` | you |
+| `pkgs/plugins.lock.json` | *which bytes*: resolved version, tarball hash, dependency-store hash, resolved `package-lock.json` | `scripts/lock-dsh-plugins.py` |
+
+```console
+$ ./scripts/lock-dsh-plugins.py           # regenerate after editing a declaration
+$ ./scripts/lock-dsh-plugins.py --check   # structural drift; no network
+$ ./scripts/lock-dsh-plugins.py --check --online   # also refetch tarball hashes
+```
+
+A declaration therefore carries no hash and, for a registry plugin, no
+version either. Bumping a plugin is one line plus one regeneration; the
+`plugin-lock` check fails when a declaration has no lock entry, when the lock
+carries a key the declarations no longer have, or when an entry is missing a
+version — and `--check --online` is what compares a recorded tarball hash
+against npm, because the Nix check itself cannot refetch one.
 
 ### Static version ranges
 
@@ -512,6 +540,7 @@ Checks worth knowing:
 | `dsh-modules-vm` | a real NixOS VM: `$HOME` expansion, a seeded patch layer surviving a rebuild, `dsh-config-reset` semantics, and an actual agent turn against a fake model endpoint |
 | `home-manager-module` | the generated activation script and systemd unit |
 | `mkDshPlugin-npm`, `mkDshPlugin-pnpm-workspace`, `mkDshPlugin-npm-registry` | the three packaging paths (npm lockfile, pnpm workspace member, registry tarball) |
+| `plugin-lock` | `pluginLock` resolves `npmVersion = "latest"`, the repo lock covers every declaration, and an unpinned plugin is an evaluation error |
 | `range-eval` | `dshVersionRange` arithmetic, and that an incompatible plugin is rejected |
 | `plugin-registry`, `git-pin`, `versions-json` | the registry tree, the moving `git` pin, and the release list |
 
@@ -522,15 +551,22 @@ check verifies its patch layer takes effect in the running dsh.
 
 ## Plugin pinning and dependency locks
 
-No plugin-specific data is committed here — no per-plugin version table and
-no per-plugin lockfile — so nothing about buildability depends on what this
-repository happens to contain. A plugin is pinned entirely at the call site:
+A plugin is pinned at the call site, and hashes are never typed by hand. Which
+shape to use depends on how much you want to own:
 
 | What | Pinned by |
 | --- | --- |
+| everything, in one generated file | `pluginLock = ./plugins.lock.json` + `npmVersion = "latest"` — see [`scripts/lock-dsh-plugins.py`](scripts/lock-dsh-plugins.py) |
 | the artifact | `hash` of the registry tarball (`npmName` + `npmVersion`) or of the source tree (`source`) |
 | the dependency tree | the lockfile **you** own: `npmLockfile = ./package-lock.json`, or a `source` tree whose `pnpm-lock.yaml` covers the plugin plus `pnpmDepsHash` |
 | the ABI | `dshVersionRange`, checked against the harness version at evaluation time |
+
+The lock path is the DRY one, and it is what this repository's own catalog
+uses: the declaration names the package and the tag, the generator resolves
+the version, the tarball hash, the dependency-store hash and — when the
+published tarball declares runtime dependencies but ships no lockfile — a
+`package-lock.json` next to the lock. One regeneration per bump, no digest
+copied out of a build log, and `plugin-lock` fails CI if the two drift apart.
 
 `package.json` ranges still mean what they always meant, but they cannot be
 resolved *inside* the build: Nix builds have no network, so npm/pnpm would
@@ -539,6 +575,16 @@ would have to be hashed anyway. The range therefore applies when **you**
 regenerate the lock, and the lock — not the range — is what the sandbox
 consumes. Plugins that ship their own lockfile, or have no runtime
 dependencies at all, need nothing extra.
+
+Pitfalls worth knowing, because both are silent:
+
+- the argument is `pluginLock`, not `lock`. nixpkgs has a `pkgs.lock`, and
+  `callPackage` injects it into any argument of that name — the same trap that
+  once put nixpkgs' `src` (a throw alias) and `commit` (the `commit-4.x`
+  editor) into the harness derivation.
+- `npmVersion = "latest"` needs a lock to resolve it; without one it is an
+  evaluation error rather than a build against whatever the tag happens to
+  point at today.
 
 For a local compatibility run against published plugins, the cases are
 scratch files under the gitignored `.prefetch/`:
@@ -575,6 +621,9 @@ and the NixOS/HM modules in `modules/`.
 | `lib/default.nix` | internal helpers: release list, version-name sanitizing, `mkDshPackageSet` |
 | `pkgs/deepseek-harness.nix` | the deepseek-harness package (version + hashes parameterized) |
 | `pkgs/mkDshPlugin.nix` | npm/GitHub → dsh plugin package builder |
+| `pkgs/dsh-plugin-declarations.nix` | the curated catalog's declarations (what a plugin is, no hashes) |
+| `pkgs/plugins.lock.json`, `pkgs/plugin-locks/` | generated pins for those declarations (version, hashes, resolved dependency trees) |
+| `scripts/lock-dsh-plugins.py` | regenerates that lock |
 | `test/plugins/driver.sh` | generic driver for real-plugin compatibility runs (cases live in `.prefetch/`, never committed) |
 | `test/vm-modules.nix` | NixOS VM test behind `checks.<system>.dsh-modules-vm` |
 | `test/minimal-plugin/`, `test/npm-plugin/`, `test/workspace-plugin/` | fixtures for the three `mkDshPlugin` packaging paths |

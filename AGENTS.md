@@ -19,7 +19,8 @@ Layout, in one line each:
 | `lib/default.nix` | internal helpers: release list, version comparison, `mkDshPackageSet`, the `dshVersionRange` evaluator |
 | `pkgs/deepseek-harness.nix` | the `dsh` derivation, parameterized by version + hashes |
 | `pkgs/mkDshPlugin.nix` | out-of-tree plugin ("bundle") builder |
-| `pkgs/dsh-plugins.nix` | curated plugin catalog (fixtures today) |
+| `pkgs/dsh-plugin-declarations.nix` | curated plugin catalog: what each plugin *is* (no hashes) |
+| `pkgs/plugins.lock.json`, `pkgs/plugin-locks/` | generated pins for those declarations (version, hashes, resolved trees) |
 | `pkgs/dsh-plugin-registry.nix` | static npm registry tree built from that catalog |
 | `modules/` | NixOS and Home Manager modules, plus the profile template/sync machinery |
 | `test/` | fixtures and the NixOS VM test |
@@ -211,6 +212,29 @@ instance, and a plugin that bundles its own copy breaks that.
 
 The option is `source` for a source tree (not `src`; there is no alias). Keep
 `source` and `npmName` mutually exclusive, exactly one.
+
+### Declarations and the generated lock
+
+A plugin is declared once (`pkgs/dsh-plugin-declarations.nix`) and pinned once
+(`pkgs/plugins.lock.json`). The declaration carries no hash and, for a
+registry plugin, no version either — `npmVersion = "latest"` means "the version
+the lock froze". Never hand-edit the lock: run
+`scripts/lock-dsh-plugins.py`, which resolves each declaration through npm,
+fetches the tarball, derives the dependency-store hash from a deliberately
+failing build, and writes any needed `package-lock.json` under
+`pkgs/plugin-locks/`. `--check` (add `--online` to refetch tarball hashes) is
+the drift gate; the `plugin-lock` check enforces the same pairing in CI.
+
+Two rules that exist because both failures are silent:
+
+- the builder argument is `pluginLock`, **not** `lock`. `pkgs.lock` exists in
+  nixpkgs, and `callPackage` injects it into any argument of that name — the
+  same trap that put nixpkgs' `src` and `commit` into the harness derivation.
+  Adding a new argument? Check `nix eval --expr 'let p = import <nixpkgs> {};
+  in p ? <name>'` first.
+- `npmVersion = "latest"` without a lock is an evaluation error on purpose. A
+  fallback would build whatever the tag points at today, which is exactly the
+  thing the lock exists to prevent.
 
 ## Documentation rules
 

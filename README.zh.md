@@ -95,11 +95,11 @@ Flake 输出：
 | `legacyPackages.<system>.dshPackage` | 函数 `version -> deepseek-harness` derivation（仅限 Nix 代码） |
 | `legacyPackages.<system>.dshPackageSets.<version>` | 每个发行版一个包集合，以精确版本字符串为键（每个条目是一个 thunk） |
 | `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.git` | channel 快捷方式（每个预发布标签的最新版，以及分支头部） |
-| `legacyPackages.<system>.dshPlugins` | 精选插件目录（`pkgs/dsh-plugins.nix`） |
+| `legacyPackages.<system>.dshPlugins` | 精选插件目录（`pkgs/dsh-plugin-declarations.nix` + `pkgs/plugins.lock.json`） |
 | `lib.mkDshPluginFor.<system>` | 针对指定系统的插件构建器（纯求值可用）；`lib.mkDshPlugin` 是 impure 形式 |
 | `overlays.default` | 将 `deepseek-harness`、`mkDshPlugin` 和 `dshPackageSets`（仅按版本为键，没有 `latest`/`git` 快捷方式）注入 pkgs |
 | `nixosModules.default`, `homeModules.default` | 声明式 profile 和服务 |
-| `checks.<system>.*` | 共十个 check；其中 `plugin-e2e`、`dsh-modules-vm`、`home-manager-module` 是关键（见「开发」） |
+| `checks.<system>.*` | 共十一个 check；其中 `plugin-e2e`、`dsh-modules-vm`、`home-manager-module` 是关键（见「开发」） |
 
 每个包集合都暴露 `deepseek-harness`（别名 `dsh`）、`withPlugins`、
 `mkDshPlugin` 和 `version`。
@@ -157,16 +157,20 @@ in
 mkDshPlugin {
   # 二选一（只能给一个；源码树用 `source`）：
   source = fetchFromGitHub { … };       # 任意源码树 / fetcher 结果
-  npmName = "@acme/dsh-plugin-acme";    # 或从 npm registry 拉取，需同时给出
-  npmVersion = "1.2.3";                 #   版本号
-  hash = "sha256-…";                    #   与 registry tarball 的 hash
+  npmName = "@acme/dsh-plugin-acme";    # 或从 npm registry 拉取，给出一个版本
+  npmVersion = "1.2.3";                 #   ——或 `"latest"`，由 `pluginLock`
+  hash = "sha256-…";                    #   解析——以及 tarball 的 hash
+
+  # DRY 写法：不给版本、不给 hash，只给一个生成的文件。
+  pluginLock = ./plugins.lock.json;     # 由 `scripts/lock-dsh-plugins.py` 写出
+  lockKey = "@acme/dsh-plugin-acme";    # 默认取 `npmName`
 
   # 可选：
   packageDir = "packages/plugin";       # workspace 成员（monorepo）
   pname = "…";                          # 覆盖从 package.json 探测到的
   version = "…";                        #   元数据
   pnpmDepsHash = lib.fakeHash;          # 依赖 store hash（pnpm 项目）
-  npmDepsHash = lib.fakeHash;           # … 或 npm / yarnDepsHash（yarn）
+  npmDepsHash = lib.fakeHash;           # … 或 yarnDepsHash（yarn）
   npmLockfile = ./package-lock.json;    # 未自带 lockfile 的 tarball 用
   npmBuildScript = "build";             # 同时作为 pnpmBuildScript
   npmBuild = false;                     # 重新构建自带 lib/ 的 tarball
@@ -182,6 +186,11 @@ mkDshPlugin {
   meta = { … };
 }
 ```
+
+配合 `pluginLock` 时，`npmVersion = "latest"` 表示“lock 冻结的那个版本”：
+调用处继续跟随 tag，而 `plugins.lock.json` 保存具体版本、tarball hash、
+依赖 store hash，以及（当 tarball 本身不带 lockfile 时）解析出的
+`package-lock.json`。显式参数仍然优先于 lock，因此一次性的固定无需改动 lock。
 
 行为：
 
@@ -323,7 +332,7 @@ reset 里点名时才会被接管。NixOS 上配置了多个 `programs.dsh.users
 
 ## 插件目录与 registry 订阅
 
-`pkgs/dsh-plugins.nix` 是精选插件目录；flake 将其暴露为
+`pkgs/dsh-plugin-declarations.nix` 是精选插件目录；flake 将其暴露为
 `dshPlugins`，并构建为 `dsh-plugin-registry`——一个**静态 npm
 registry 树**，dsh 的插件管理器可从中安装（按照 `--registry` 的处理方式，
 dsh 的 registry 就是 npm registry）：
@@ -339,8 +348,24 @@ $ cd result && python3 -m http.server 4873
 `dist.tarball`/`shasum`/`integrity`）和一个 tarball；`catalog.json`
 汇总该列表。`registryBaseUrl` 可覆盖：
 `dsh-plugin-registry.override { registryBaseUrl = "https://plugins.example.com"; }`。
-编辑 `pkgs/dsh-plugins.nix` 即可让目录指向你自己的插件
-（条目都是普通的 `mkDshPlugin` 调用）。
+
+目录被拆成两半：插件只声明一次，也只固定一次。
+
+| 文件 | 内容 | 由谁写 |
+| --- | --- | --- |
+| `pkgs/dsh-plugin-declarations.nix` | 插件**是什么**：`npmName`、它跟随的 tag（`"latest"`）、源码树、`dshVersionRange` | 你 |
+| `pkgs/plugins.lock.json` | **哪一份字节**：解析后的版本、tarball hash、依赖 store hash、解析出的 `package-lock.json` | `scripts/lock-dsh-plugins.py` |
+
+```console
+$ ./scripts/lock-dsh-plugins.py           # 修改声明后重新生成
+$ ./scripts/lock-dsh-plugins.py --check   # 结构性漂移，无网络
+$ ./scripts/lock-dsh-plugins.py --check --online   # 同时重新抓取 tarball hash
+```
+
+因此一条声明既不含 hash，也不含（registry 插件的）版本。升级插件是一行改动
+加一次重新生成；当某条声明没有 lock 条目、lock 里带着声明已不存在的键，或
+条目缺少版本时，`plugin-lock` check 会失败——而对比记录的 tarball hash 与
+npm 上实际值的，是 `--check --online`，因为 Nix 的 check 本身无法重新抓取。
 
 ### 静态版本范围
 
@@ -485,6 +510,7 @@ $ nix flake check --all-systems                # 本机执行全部 check，
 | `mkDshPlugin-npm`、`mkDshPlugin-pnpm-workspace`、`mkDshPlugin-npm-registry` | 三条打包路径（npm lockfile、pnpm workspace 成员、registry tarball） |
 | `range-eval` | `dshVersionRange` 的算术，以及不兼容插件会被拒绝 |
 | `plugin-registry`、`git-pin`、`versions-json` | registry 树、移动的 `git` 固定点、发行版列表 |
+| `plugin-lock` | `pluginLock` 能解析 `npmVersion = "latest"`、仓库 lock 覆盖每一条声明、未固定的插件是求值错误 |
 
 `test/minimal-plugin/` 是端到端检查使用的仅含 patch 的 bundle 夹具：
 它通过 `mkDshPlugin` 构建，用 `pluginList` 预置进 harness，通过声明式
@@ -492,21 +518,35 @@ $ nix flake check --all-systems                # 本机执行全部 check，
 
 ## 插件固定与依赖锁定
 
-这里不提交任何插件专属数据——没有按插件划分的版本表，也没有按插件划分的
-lockfile——因此可构建性完全不取决于本仓库恰好包含什么。插件完全在调用处
-固定：
+插件在调用处固定，并且绝不手写 hash。选哪种形式，取决于你想自己拥有多少：
 
 | 对象 | 固定方式 |
 | --- | --- |
+| 全部，一个生成文件里 | `pluginLock = ./plugins.lock.json` + `npmVersion = "latest"` ——见 [`scripts/lock-dsh-plugins.py`](scripts/lock-dsh-plugins.py) |
 | 产物 | registry tarball（`npmName` + `npmVersion`）或源码树（`source`）的 `hash` |
 | 依赖树 | **你**自己的 lockfile：`npmLockfile = ./package-lock.json`，或 `pnpm-lock.yaml` 覆盖该插件的 `source` 树加上 `pnpmDepsHash` |
 | ABI | `dshVersionRange`，在求值时对照 harness 版本检查 |
+
+lock 这条路是 DRY 的那条，也是本仓库自己的目录在用的：声明只写包名和 tag，
+生成器负责解析版本、tarball hash、依赖 store hash，并在已发布的 tarball
+声明了运行时依赖却不带 lockfile 时，在 lock 旁边解析出一份
+`package-lock.json`。每次升级只需重新生成一次，不必从构建日志里抄 digest，
+而一旦两者漂移，`plugin-lock` 就会让 CI 失败。
 
 `package.json` 中的范围仍具有它们一贯的含义，但无法在构建*内部*解析：
 Nix 构建没有网络，因此 npm/pnpm 将不得不针对一个不可达的 registry 去解析
 `^1.2.3`，而且结果无论如何都得计算 hash。因此该范围只在**你**重新生成
 lock 时起作用，而沙箱消费的是 lock——不是范围。自带 lockfile 或完全没有
 运行时依赖的插件不需要任何额外处理。
+
+有两个陷阱值得记住，因为两者都是静默的：
+
+- 参数名是 `pluginLock`，不是 `lock`。nixpkgs 自带一个 `pkgs.lock`，
+  `callPackage` 会把它注入任何同名参数——正是当初把 nixpkgs 的 `src`
+  （一个 throw 别名）和 `commit`（`commit-4.x` 编辑器）塞进 harness
+  derivation 的那个坑。
+- `npmVersion = "latest"` 需要 lock 才能解析；没有 lock 时这是求值错误，
+  而不是去构建 tag 今天所指向的东西。
 
 要对已发布插件做本地兼容性运行，用例是位于被 git 忽略的 `.prefetch/` 下的
 临时文件：
@@ -543,6 +583,9 @@ NixOS/HM 模块在 `modules/`。
 | `lib/default.nix` | 内部辅助函数：发行版列表、版本名清理、`mkDshPackageSet` |
 | `pkgs/deepseek-harness.nix` | deepseek-harness 包（版本 + hash 参数化） |
 | `pkgs/mkDshPlugin.nix` | npm/GitHub → dsh 插件包构建器 |
+| `pkgs/dsh-plugin-declarations.nix` | 精选目录的声明（插件是什么，不含 hash） |
+| `pkgs/plugins.lock.json`、`pkgs/plugin-locks/` | 这些声明的生成固定点（版本、hash、解析出的依赖树） |
+| `scripts/lock-dsh-plugins.py` | 重新生成该 lock |
 | `test/plugins/driver.sh` | 真实插件兼容性运行的通用驱动器（用例位于 `.prefetch/`，从不提交） |
 | `test/vm-modules.nix` | `checks.<system>.dsh-modules-vm` 背后的 NixOS VM 测试 |
 | `test/minimal-plugin/`、`test/npm-plugin/`、`test/workspace-plugin/` | 三条 `mkDshPlugin` 打包路径的夹具 |

@@ -1,8 +1,9 @@
-# Turn the curated plugin catalog (pkgs/dsh-plugins.nix) into a static,
-# servable npm registry tree — the "subscription link" dsh's plugin manager
-# can install from via its registry field (pnpm `--registry`).
+# Turn the curated plugin catalog (pkgs/dsh-plugin-declarations.nix, pinned by
+# pkgs/plugins.lock.json) into a static, servable npm registry tree — the
+# "subscription link" dsh's plugin manager can install from via its registry
+# field (pnpm `--registry`).
 #
-#   nix build .#dshPluginRegistry
+#   nix build .#dsh-plugin-registry
 #   cd result && python3 -m http.server 4873
 #   # then point the plugin manager (or `pnpm --registry`) at
 #   # http://127.0.0.1:4873
