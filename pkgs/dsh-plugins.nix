@@ -1,37 +1,28 @@
-# Curated dsh plugin catalog. Every entry is a plugin package built by
-# pkgs/mkDshPlugin.nix; `dshVersionRange` is the static compatibility gate
-# enforced wherever the plugin is wired in (withPlugins, module plugin
-# lists) and exported as `engines.dsh` in the generated plugin registry.
+# Curated dsh plugin catalog: declarations (`dsh-plugin-declarations.nix`)
+# turned into plugin packages, pinned by the generated lock.
 #
-# Add an entry per plugin:
-#   <name> = mkDshPlugin { source = …; dshVersionRange = ">=0.2.1-alpha.1"; };
+# The split is deliberate. The declaration says *what* a plugin is — its npm
+# name, the tag it tracks, where its source tree lives. The lock says *which
+# bytes*: resolved version, tarball hash, dependency-store hash, and the
+# resolved dependency tree for a plugin that needs one. Bumping a plugin is
+# therefore one number in the declaration plus one regeneration:
+#
+#   ./scripts/lock-dsh-plugins.py
+#
+# Hashes are never typed here. See `pkgs/mkDshPlugin.nix` for the arguments;
+# this file only supplies `pluginLock` and `lockKey`.
 {
   pkgs,
+  lib ? pkgs.lib,
+  # The generated pin file. Overridable so the lock generator can evaluate
+  # against a stub and read back the hash Nix expects.
+  pluginLock ? ./plugins.lock.json,
 }:
 
 let
-  mk = args: pkgs.callPackage ./mkDshPlugin.nix args;
+  mk = key: declaration: pkgs.callPackage ./mkDshPlugin.nix (declaration // {
+    inherit pluginLock;
+    lockKey = key;
+  });
 in
-{
-  # Patch-only example bundle from this repository's fixtures.
-  test-persona = mk {
-    source = ../test/minimal-plugin;
-    dshVersionRange = ">=0.2.1-alpha.1";
-  };
-
-  # npm lockfile fixture bundle (exercises the npm path).
-  test-npm = mk {
-    source = ../test/npm-plugin;
-    npmDepsHash = "sha256-YvMlco6yhkcHf9gQBU9nCmUrHZ9EG/TpmOPM3a/V5D4=";
-    dshVersionRange = ">=0.2.1-alpha.1 <0.3";
-  };
-
-  # pnpm workspace member fixture bundle (exercises packageDir + the
-  # lockfile-at-root fetch).
-  test-persona-workspace = mk {
-    source = ../test/workspace-plugin;
-    packageDir = "packages/persona";
-    pnpmDepsHash = "sha256-8w0PxLScmoAsePC+lUMGbieXl+TKWcndrvOKnBY+B2A=";
-    dshVersionRange = ">=0.2.1-alpha.1";
-  };
-}
+lib.mapAttrs mk (import ./dsh-plugin-declarations.nix)

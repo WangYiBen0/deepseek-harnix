@@ -1,0 +1,10 @@
+{
+  "_comment": "Fixture lock for the `mkDshPlugin-lock` check: it proves a declaration can name a registry package at the moving `latest` tag and still build reproducibly, because the version and the tarball hash come from here rather than from the call site. `ms` is already a fixed-output dependency of `mkDshPlugin-npm-registry`, so this adds no new fetch.",
+  "version": 1,
+  "plugins": {
+    "ms": {
+      "version": "2.1.3",
+      "hash": "sha256-9mFuFeUw7VUvnaotPOcZY5R8a8fJjJtk/T5nP9AmIsY="
+    }
+  }
+}

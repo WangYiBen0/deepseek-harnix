@@ -265,6 +265,81 @@
               grep -q '"name": "ms"' $plugin/package.json
               echo $plugin > $out
             '';
+        # The lock is what makes a declaration with no version and no hash
+        # buildable: `npmVersion = "latest"` resolves through
+        # `pkgs/plugins.lock.json`, so the call site stays DRY while the build
+        # stays reproducible. Both halves are asserted, because either one
+        # alone can regress silently — a missing `hash` falls back to the
+        # placeholder, and a lock that is ignored still builds (from the
+        # argument) while quietly no longer pinning anything.
+        plugin-lock =
+          let
+            # The declaration keys, not the lock's own: comparing the lock
+            # against itself would assert nothing.
+            declarationKeys = builtins.attrNames (
+              import ../pkgs/dsh-plugin-declarations.nix
+            );
+            resolved = set.mkDshPlugin {
+              npmName = "ms";
+              npmVersion = "latest";
+              pluginLock = ../test/plugin-lock.json;
+            };
+            resolvedFromRepoLock = (import ../pkgs/dsh-plugins.nix { inherit pkgs; }).test-persona;
+            # An entry the lock does not know must fail at evaluation time,
+            # naming the key and the generator, rather than fall through to a
+            # placeholder hash and fail 20 minutes into a build.
+            unknownKey = builtins.tryEval (
+              (set.mkDshPlugin {
+                npmName = "ms";
+                pluginLock = ../test/plugin-lock.json;
+                lockKey = "definitely-not-in-the-lock";
+              }).drvPath
+            );
+            # `latest` with no lock has nothing to resolve it, so it must fail
+            # at evaluation time instead of fetching an unrelated tag.
+            latestWithoutLock = builtins.tryEval (
+              (set.mkDshPlugin { npmName = "ms"; npmVersion = "latest"; }).drvPath
+            );
+          in
+          pkgs.runCommand "dsh-plugin-lock-check"
+            {
+              nativeBuildInputs = [ pkgs.jq ];
+              inherit resolvedFromRepoLock;
+              resolvedVersion = resolved.npmVersion;
+              resolvedName = resolved.npmName;
+              declarationKeysJson = builtins.toJSON declarationKeys;
+              unknownBlocked = if unknownKey.success then "0" else "1";
+              latestBlocked = if latestWithoutLock.success then "0" else "1";
+              passAsFile = [ "declarationKeysJson" ];
+            }
+            ''
+              # The published `latest` tag resolved to the frozen version.
+              test "$resolvedVersion" = "2.1.3"
+              test "$resolvedName" = "ms"
+              # …from the lock, not from the call site: the declaration names
+              # no version and no hash.
+              jq -e '.plugins.ms.version == "2.1.3"' ${../test/plugin-lock.json} > /dev/null
+
+              # The repository's own lock covers every curated declaration and
+              # nothing else, so a new plugin without a regenerated lock (or a
+              # stale entry) fails here instead of in a user's build. Compared
+              # against the declarations — a lock trivially agrees with itself.
+              jq -e --argjson keys "$(cat $declarationKeysJsonPath)" \
+                '(.plugins | keys) == $keys' ${../pkgs/plugins.lock.json} > /dev/null
+              # Every entry carries a version, and every entry that is a
+              # registry plugin carries a tarball hash.
+              jq -e 'all(.plugins[]; has("version"))' ${../pkgs/plugins.lock.json} > /dev/null
+
+              # A plugin built from the repository lock came out of its entry.
+              test -f $resolvedFromRepoLock/package.json
+              grep -q '"name": "dsh-test-persona"' $resolvedFromRepoLock/package.json
+
+              # Both unpinned shapes are evaluation errors, not builds that
+              # quietly use a placeholder hash.
+              test "$unknownBlocked" = 1
+              test "$latestBlocked" = 1
+              echo ok > $out
+            '';
       }
       # Home Manager's systemd user options exist only on Linux, so this check
       # (which asserts on the generated unit) is Linux-only.

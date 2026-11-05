@@ -59,11 +59,32 @@
   # `packageDir`). Any fetcher result or plain store path works.
   source ? null,
 
-  # Alternative to `src`: fetch the plugin from the npm registry. Requires
-  # `npmVersion` and `hash` (the registry tarball hash).
+  # Alternative to `src`: fetch the plugin from the npm registry. `npmVersion`
+  # and `hash` (the registry tarball hash) normally come with it, or from
+  # `pluginLock` below.
   npmName ? null,
+  # A concrete version, or "latest" to take the version the lock resolved.
+  # `null` behaves like "latest" when a lock entry exists, so a declaration
+  # that tracks a published package carries no version at all.
   npmVersion ? null,
   hash ? null,
+
+  # Machine-generated pin data: a JSON file (or an already-parsed attrset)
+  # whose `plugins.<lockKey>` entry supplies the resolved `version` plus
+  # `hash`, `npmDepsHash`, `pnpmDepsHash`, `yarnDepsHash` and an optional
+  # `npmLockfile` path (relative to the lock file). With a lock the call site
+  # carries no hashes and no version — the one file
+  # `scripts/lock-dsh-plugins.py` writes is the whole pin, so bumping a plugin
+  # is a regeneration rather than a hand-copied digest.
+  #
+  # Deliberately not named `lock`: nixpkgs has a `pkgs.lock`, and callPackage
+  # would inject it as an argument nobody asked for — the same trap that put
+  # nixpkgs' `src` and `commit` into the harness derivation.
+  pluginLock ? null,
+  # Which lock entry this plugin reads. Defaults to `npmName`, then `pname`,
+  # then the package name from package.json, so a registry plugin needs no
+  # key of its own.
+  lockKey ? null,
 
   # Overrides for the metadata read from package.json.
   pname ? null,
@@ -72,11 +93,12 @@
   # Subdirectory of `src` holding the plugin package (workspace member).
   packageDir ? null,
 
-  # Dependency-store hashes for the detected package manager. The default
-  # lib.fakeHash makes the first build fail with the real hash to copy in.
-  pnpmDepsHash ? lib.fakeHash,
-  npmDepsHash ? lib.fakeHash,
-  yarnDepsHash ? lib.fakeHash,
+  # Dependency-store hashes for the detected package manager. `null` (the
+  # default) falls back to the lock entry, and then to lib.fakeHash, whose
+  # first build fails with the real hash to copy in.
+  pnpmDepsHash ? null,
+  npmDepsHash ? null,
+  yarnDepsHash ? null,
 
   # npm/yarn build script name.
   npmBuildScript ? "build",
@@ -147,26 +169,121 @@ let
   hasSrc = source != null;
   hasRegistry = npmName != null;
 
+  # ── lock ──────────────────────────────────────────────────────────────────
+  # `pluginLock` is either a path to the JSON file
+  # `scripts/lock-dsh-plugins.py` maintains or an already-parsed attrset of it
+  # (the generator passes a stubbed one in). Only `plugins.<key>` is read.
+  lockData =
+    if pluginLock == null then
+      null
+    else if builtins.isAttrs pluginLock then
+      pluginLock
+    else
+      builtins.fromJSON (builtins.readFile pluginLock);
+
+  # The lock key is the plugin's npm name, so a registry plugin needs none of
+  # its own. A source plugin falls back to its package.json name; that read is
+  # lazy and never happens for a registry plugin (whose npmVersion resolves
+  # from the lock, whose key resolves from npmName — no cycle).
+  lockKeyFinal =
+    if lockKey != null then
+      lockKey
+    else if npmName != null then
+      npmName
+    else if pname != null then
+      pname
+    else if lockData != null then
+      manifest.name
+    else
+      null;
+
+  lockEntry =
+    if lockData == null then
+      null
+    else
+      lockData.plugins.${lockKeyFinal} or (throw ''
+        mkDshPlugin: ${lockKeyFinal} has no entry in the lock.
+        Run scripts/lock-dsh-plugins.py to generate it.'');
+
+  # "latest" is the declaration-side spelling of "whatever the lock resolved
+  # to". `null` means the same thing, so a plugin that tracks a published
+  # package carries no version at all and one that is pinned says so.
+  npmVersionFinal =
+    if npmVersion != null && npmVersion != "latest" then
+      npmVersion
+    else if lockEntry != null then
+      lockEntry.version or (throw "mkDshPlugin: lock entry ${lockKeyFinal} has no `version`")
+    else
+      npmVersion;
+
+  hashFinal =
+    if hash != null then
+      hash
+    else if lockEntry != null then
+      lockEntry.hash or (throw "mkDshPlugin: lock entry ${lockKeyFinal} has no `hash`")
+    else
+      hash;
+
+  # A lock entry may name a resolved dependency tree ("npmLockfile": a path
+  # relative to the lock file itself), which is how `scripts/lock-dsh-plugins.py`
+  # keeps a plugin with runtime dependencies to one declaration and one
+  # generated file. Resolving it against the lock's own directory is what
+  # makes the pair relocatable — the same lock works from a checkout, a store
+  # path, or a consumer's `fetchFromGitHub`.
+  lockfileFromLock =
+    if lockEntry == null || !(lockEntry ? npmLockfile) then
+      null
+    else if !builtins.isPath pluginLock then
+      throw ''
+        mkDshPlugin: lock entry ${lockKeyFinal} names a package-lock.json, so
+        `pluginLock` has to be a path (its directory is what that name is
+        relative to), not an already-parsed attrset.''
+    else
+      dirOf pluginLock + "/${lockEntry.npmLockfile}";
+
+  npmLockfileFinal = if npmLockfile != null then npmLockfile else lockfileFromLock;
+
+  # An explicit argument wins over the lock, and a lock entry wins over the
+  # placeholder hash whose failed build prints the real one.
+  depHash =
+    name: explicit:
+    if explicit != null then
+      explicit
+    else if lockEntry != null && lockEntry ? ${name} then
+      lockEntry.${name}
+    else
+      lib.fakeHash;
+
+  # `@scope%2fname` for scoped packages, plain name otherwise. The leading
+  # `@` is part of npm's scoped path — dropping it requests a different
+  # (nonexistent) package and the mirror answers 404, so it stays.
+  tarballUrl =
+    assert hasRegistry -> npmVersionFinal != null;
+    if npmVersionFinal == "latest" then
+      throw ''
+        mkDshPlugin: ${npmName} asks for the "latest" tag but no lock resolved
+        it. Either name a version, or pass `pluginLock`
+        (scripts/lock-dsh-plugins.py writes one).''
+    else
+      let
+        encoded = lib.replaceStrings [ "/" ] [ "%2f" ] npmName;
+        tarballBase = lib.last (lib.splitString "/" (lib.removePrefix "@" npmName));
+      in
+      "https://registry.npmjs.org/${encoded}/-/${tarballBase}-${npmVersionFinal}.tgz";
+
   registryTarball = fetchurl {
-    url = let
-      # `@scope%2fname` for scoped packages, plain name otherwise. The leading
-      # `@` is part of npm's scoped path — dropping it requests a different
-      # (nonexistent) package and the mirror answers 404, so it stays.
-      encoded = lib.replaceStrings [ "/" ] [ "%2f" ] npmName;
-      tarballBase = lib.last (lib.splitString "/" (lib.removePrefix "@" npmName));
-    in assert hasRegistry -> npmVersion != null;
-      "https://registry.npmjs.org/${encoded}/-/${tarballBase}-${npmVersion}.tgz";
-    inherit hash;
+    url = tarballUrl;
+    hash = hashFinal;
   };
 
   # Registry tarball with an injected package-lock.json (when upstream ships
-  # none and `npmLockfile` is provided).
+  # none and the lock supplies one).
   srcWithLock =
-    if hasRegistry && npmLockfile != null then
-      runCommand "dsh-plugin-src-${lib.strings.sanitizeDerivationName npmName}-${npmVersion}-locked" { } ''
+    if hasRegistry && npmLockfileFinal != null then
+      runCommand "dsh-plugin-src-${lib.strings.sanitizeDerivationName npmName}-${npmVersionFinal}-locked" { } ''
         mkdir -p $out
         cp -r ${rawSrc}/. $out/
-        cp ${npmLockfile} $out/package-lock.json
+        cp ${npmLockfileFinal} $out/package-lock.json
         chmod -R u+w $out
       ''
     else
@@ -174,7 +291,7 @@ let
 
   rawSrc =
     if hasRegistry then
-      runCommand "dsh-plugin-src-${lib.strings.sanitizeDerivationName npmName}-${npmVersion}" { } ''
+      runCommand "dsh-plugin-src-${lib.strings.sanitizeDerivationName npmName}-${npmVersionFinal}" { } ''
         mkdir -p $out
         tar -xzf ${registryTarball} -C $out --strip-components=1
       ''
@@ -234,7 +351,7 @@ let
   # Import-from-derivation read of the package metadata for sources that
   # cannot be read directly (fetched store paths, registry tarballs)
   manifestDrv = runCommand "dsh-plugin-manifest-${lib.strings.sanitizeDerivationName (
-    if hasRegistry then "${npmName}-${npmVersion}" else (baseNameOf (toString source))
+    if hasRegistry then "${npmName}-${npmVersionFinal}" else (baseNameOf (toString source))
   )}"
     {
       source = if hasRegistry then srcWithLock else rawSrc;
@@ -312,8 +429,8 @@ let
   # any other platform. Detect that case in the lockfile and only then relax
   # the platform check.
   npmLockData =
-    if hasRegistry && npmLockfile != null then
-      builtins.fromJSON (builtins.readFile npmLockfile)
+    if hasRegistry && npmLockfileFinal != null then
+      builtins.fromJSON (builtins.readFile npmLockfileFinal)
     else if !hasRegistry && manifest.lockfile == "npm" then
       builtins.fromJSON (builtins.readFile (rawSrc + "/package-lock.json"))
     else
@@ -364,8 +481,8 @@ in
 assert (hasSrc || hasRegistry) || throw "mkDshPlugin: pass `source` or `npmName`";
 assert (hasSrc && hasRegistry) == false || throw "mkDshPlugin: pass `source` or `npmName`, not both";
 assert
-  !hasRegistry || (npmVersion != null && hash != null) || throw
-    "mkDshPlugin: `npmName` requires `npmVersion` and `hash`";
+  !hasRegistry || (npmVersionFinal != null && hashFinal != null) || throw
+    "mkDshPlugin: `npmName` needs a version and a hash: pass them explicitly, or pass `pluginLock` and let it resolve them";
 assert
   manifest.name != null || pname != null || throw
     "mkDshPlugin: source package.json has no `name`; pass `pname` explicitly";
@@ -373,11 +490,13 @@ assert
   manifest.version != null || version != null || throw
     "mkDshPlugin: source package.json has no `version`; pass `version` explicitly";
 assert
-  manifest.lockfile != null || npmLockfile != null || (if hasRegistry then manifest.runtimeDependencyCount else manifest.dependencyCount) == 0 || throw ''
+  manifest.lockfile != null || npmLockfileFinal != null || (if hasRegistry then manifest.runtimeDependencyCount else manifest.dependencyCount) == 0 || throw ''
     mkDshPlugin: ${finalName} declares dependencies but no lockfile is available.
     Nix builds without network, so the dependency tree has to be resolved
     ahead of time — npm/pnpm cannot honour a semver range here.
     Supply the resolution you already own:
+      * pass `pluginLock`: scripts/lock-dsh-plugins.py resolves the tree and
+        writes it into the lock entry next to the tarball hash
       * npm:  npmLockfile = ./package-lock.json
               (any lock you control; `npm install --package-lock-only` in a
               package.json that lists this plugin generates one)
@@ -459,27 +578,27 @@ stdenv.mkDerivation (finalAttrs: {
         src = if hasRegistry then srcWithLock else source;
         pnpm = pnpm_11;
         fetcherVersion = 4;
-        hash = pnpmDepsHash;
+        hash = depHash "pnpmDepsHash" pnpmDepsHash;
       }
     else
       null;
 
   npmDeps =
-    if hasRegistry && (manifest.lockfile == "npm" || npmLockfile != null) then
+    if hasRegistry && (manifest.lockfile == "npm" || npmLockfileFinal != null) then
       fetchNpmDeps {
         inherit (finalAttrs) pname version;
         src = srcWithLock;
-        forceEmptyCache = manifest.dependencyCount == 0 && npmLockfile == null;
+        forceEmptyCache = manifest.dependencyCount == 0 && npmLockfileFinal == null;
         # Registry tarballs ship prebuilt lib/: install the runtime tree only.
         npmInstallFlags = if npmBuild then "" else "--omit=dev";
-        hash = npmDepsHash;
+        hash = depHash "npmDepsHash" npmDepsHash;
       }
     else if manifest.lockfile == "npm" then
       fetchNpmDeps {
         inherit (finalAttrs) pname version;
         src = source;
         forceEmptyCache = manifest.dependencyCount == 0;
-        hash = npmDepsHash;
+        hash = depHash "npmDepsHash" npmDepsHash;
       }
     else
       null;
@@ -489,7 +608,7 @@ stdenv.mkDerivation (finalAttrs: {
       fetchYarnDeps {
         inherit (finalAttrs) pname version;
         src = source;
-        hash = yarnDepsHash;
+        hash = depHash "yarnDepsHash" yarnDepsHash;
       }
     else
       null;
@@ -561,6 +680,10 @@ stdenv.mkDerivation (finalAttrs: {
     manifest = manifestDrv;
     manifestInfo = manifest;
     inherit dshVersionRange;
+    # The lock entry this plugin resolved from, so a lock refresher can tell
+    # which declarations still need one and which are already pinned.
+    inherit lockKeyFinal npmVersionFinal;
+    lockEntry = lockEntry;
   };
 
   meta = {
