@@ -107,6 +107,31 @@ resolve_commit() {
   fi
 }
 
+# curlOpts for the source fetch, shared by the script and (via the flake)
+# by `pkgs/deepseek-harness.nix`, so a fix here reaches both.
+#
+# The defaults are tuned for a flaky path to github.com rather than for
+# speed, because that is where this fetch fails:
+#
+#   --connect-timeout 10   a connection that takes longer than 10s is dead,
+#                          and failing fast is what makes the retries useful;
+#   --retry 8 --retry-all-errors
+#                          retry transport failures *and* HTTP 5xx/429. Plain
+#                          `--retry` only covers the former, so a 502 from
+#                          github.com used to fail the whole run outright;
+#   --retry-delay 5 --retry-max-time 300
+#                          fixed 5s spacing, but never grind for more than
+#                          5 minutes: curl's default exponential backoff spends
+#                          255s sleeping and 270s stalling, which is how one
+#                          bad fetch turned into a 9-minute step (run
+#                          42477950347);
+#   --speed-time 60 --speed-limit 1024
+#                          1024 B/s sustained for a minute — the old
+#                          10240 B/s / 30s pair aborted on a merely slow
+#                          mirror, before any data had a chance to arrive.
+curl_opts="--connect-timeout 10 --retry 8 --retry-all-errors --retry-delay 5 --retry-max-time 300 --speed-time 60 --speed-limit 1024"
+export DSH_CURL_OPTS=${DSH_CURL_OPTS:-$curl_opts}
+
 # src_expr <hash> → fetchzip invocation exactly matching dsh.nix's
 # commit-pinned branch. Depends on $src_url and (resolved) $commit.
 src_expr() {
@@ -115,7 +140,7 @@ src_expr() {
 (pkgs.fetchzip {
         name = "dsh-src-\$(date +%s%N)";
         url = "$src_url";
-        curlOpts = "--connect-timeout 10 --speed-time 30 --speed-limit 10240 --retry 8";
+        curlOpts = "$DSH_CURL_OPTS";
         postFetch = ''
           echo $commit > \$out/.git-commit
         '';

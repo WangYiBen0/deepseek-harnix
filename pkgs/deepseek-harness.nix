@@ -19,6 +19,13 @@
   testers,
   zsh,
 
+  # curl flags for the commit-archive source fetch. The flake passes
+  # `lib.srcCurlOpts` and `scripts/prefetch-dsh-version.sh` exports the same
+  # string as `DSH_CURL_OPTS`, so a locally computed hash is the hash this
+  # derivation fetches. Left overridable for a one-off build behind a slow or
+  # proxied network; null keeps nixpkgs' defaults.
+  curlOpts ? null,
+
   # Out-of-tree plugin ("bundle") derivations to bake into this installation.
   # Each plugin is symlinked into the installation's node_modules so the
   # two-anchor bundle resolver (installation anchor first, then the profile
@@ -113,6 +120,11 @@ stdenv.mkDerivation (finalAttrs: {
           else
             "https://github.com/deepseek-ai/deepseek-harness/archive/refs/tags/dsh-v${finalAttrs.version}.tar.gz";
         hash = srcHash;
+        # Without this the fetch inherits nixpkgs' defaults, which retry
+        # transport errors only and use curl's exponential backoff — one slow
+        # response costs minutes and a 5xx costs the whole build. `curlOpts`
+        # is the same string the prefetch script hashes with.
+        inherit curlOpts;
         postFetch = ''
           echo ${commit} > $out/.git-commit
         '';
