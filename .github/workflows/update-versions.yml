@@ -40,9 +40,15 @@ jobs:
       # pull request's checks before it can merge, and a branch pushed with the
       # default GITHUB_TOKEN triggers no workflows at all. The App token is what
       # makes the bot's push visible to CI.
+      #
+      # Pinned to v3, the Node 24 line. v2 still runs, but GitHub forces it
+      # onto Node 24 anyway and prints a deprecation warning on every run. The
+      # only v3 breaking changes are for self-hosted runners (Runner
+      # v2.327.1+) and for explicit HTTP(S)_PROXY use (`NODE_USE_ENV_PROXY=1`);
+      # neither applies to this job. Inputs and outputs are unchanged.
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}

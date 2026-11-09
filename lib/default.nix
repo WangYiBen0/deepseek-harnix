@@ -12,6 +12,21 @@ let
     git = true;
   };
 
+  # curl flags for the commit-archive source fetch, shared by the derivation
+  # and by `scripts/prefetch-dsh-version.sh` (which exports the same string as
+  # `DSH_CURL_OPTS`, so the hash it computes is the hash the package builds).
+  #
+  # Tuned for a flaky path to github.com, because that is where this fetch
+  # fails: a short connect timeout so a dead connection fails fast instead of
+  # eating the whole retry budget, `--retry-all-errors` so a 5xx/429 is retried
+  # too (plain `--retry` covers transport errors only), and a fixed
+  # `--retry-delay` with a `--retry-max-time` cap so the backoff cannot turn
+  # one bad fetch into a nine-minute step (run 42477950347: curl's exponential
+  # default burned 255s sleeping and 270s stalling). The speed floor is a
+  # liveness check, not a performance target — the old 10240 B/s over 30s
+  # aborted the transfer before any data had arrived.
+  srcCurlOpts = "--connect-timeout 10 --retry 8 --retry-all-errors --retry-delay 5 --retry-max-time 300 --speed-time 60 --speed-limit 1024";
+
   releases = (builtins.fromJSON (builtins.readFile ../pkgs/versions.json)).versions;
 
   # Tracking pin for the `git` package set (branch head, rewritten by the
@@ -154,7 +169,7 @@ let
 in
 {
   inherit releases versionCompare channelOf sanitizeVersion dshSatisfiesRange latestOf;
-  inherit gitRelease defaultRelease;
+  inherit gitRelease defaultRelease srcCurlOpts;
 
   # One release entry (pkgs/versions.json) → one package set.
   mkDshPackageSet =
@@ -165,6 +180,9 @@ in
         commit = entry.commit or null;
         srcUrl = entry.srcUrl or null;
         nameSuffix = entry.nameSuffix or null;
+        # The same string `scripts/prefetch-dsh-version.sh` hashes with, so
+        # the pin it produces is the fetch this derivation performs.
+        curlOpts = srcCurlOpts;
         # The harness itself gates its `pluginList`, so a bare
         # `.override { pluginList = …; }` — which bypasses `withPlugins` —
         # is checked too.
