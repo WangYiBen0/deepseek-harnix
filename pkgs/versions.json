@@ -257,6 +257,13 @@
       "commit": "ddac96760b6edf8fa0fe17cbdcf0b512f4c12b2c",
       "srcHash": "sha256-JMaOT9b9TwPdrljSW81E8ewiDVvNVQCWOzUuSN0h0vA=",
       "pnpmDepsHash": "sha256-md84fDBaEnqdQxlsTpaGTkGWWH1dLUGwlSp0EJ+aOA4="
+    },
+    {
+      "version": "0.2.2-rc.3",
+      "rev": "dsh-v0.2.2-rc.3",
+      "commit": "38a6a5c965aa99ab525161efb7cc5cf1fe62fced",
+      "srcHash": "sha256-TG+bRRaRCv21XJ9DWcMQFbhRVFPj4ELOAttNHaEnM0U=",
+      "pnpmDepsHash": "sha256-md84fDBaEnqdQxlsTpaGTkGWWH1dLUGwlSp0EJ+aOA4="
     }
   ]
 }
