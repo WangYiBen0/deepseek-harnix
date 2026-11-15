@@ -1,14 +1,18 @@
 # Keep the pinned dsh inputs in step with upstream.
 #
-# Two things are refreshed on every run:
+# Three things are refreshed on every run:
 #
-#   pkgs/versions.json   append-only release list — a new entry per upstream
-#                        dsh-v* tag that is not listed yet
-#   pkgs/git.json   tracking pin for the `git` package set — the head
-#                        of upstream's default branch (not append-only)
+#   pkgs/versions.json      append-only release list — a new entry per upstream
+#                           dsh-v* tag that is not listed yet
+#   pkgs/git.json           tracking pin for the `git` package set — the head
+#                           of upstream's default branch (not append-only)
+#   pkgs/plugins.lock.json  the plugin lock, regenerated so a declaration
+#                           that tracks something (`npmVersion = "latest"`,
+#                           `github = …`) re-freezes what it now resolves to
 #
 # Hashes come from scripts/prefetch-dsh-version.sh (commit-archive fetch plus
-# pnpm dependency store). The result always lands as a pull request: `main`
+# pnpm dependency store) and scripts/lock-dsh-plugins.py (plugin tarballs and
+# tracked repository heads). The result always lands as a pull request: `main`
 # requires one, so there is no direct-push path to choose.
 name: Update dsh versions
 
@@ -109,12 +113,34 @@ jobs:
           jq -e '.versions | length > 0' pkgs/versions.json > /dev/null
           rm new-entries.jsonl
 
-      # One line naming exactly what moved: Conventional Commits, with the
-      # versions spelled out so the log and the pull request title are
-      # readable without opening the diff.
+      # A declaration that tracks something is only as fresh as the lock:
+      # resolve the tracked refs and rewrite the lock in place. Idempotent
+      # when nothing moved, so the diff is exactly the auto-update.
+      - name: Refresh the plugin lock
+        id: plugin-lock
+        run: |
+          set -euo pipefail
+          # create-pull-request `git add`s every add-paths entry; the dir for
+          # generated dependency lockfiles may not exist yet.
+          mkdir -p pkgs/plugin-locks
+          python3 scripts/lock-dsh-plugins.py
+          if git diff --quiet -- pkgs/plugins.lock.json pkgs/plugin-locks; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # One line naming exactly what moved: Conventional Commits, so the log
+      # and the pull request title are readable without opening the diff.
+      # Releases are named by version; the branch-head pin by the commit that
+      # moved — its version string is whatever the tree's package.json says
+      # and can repeat across commits, so the commit is the identity.
       - name: Name the change
         id: meta
-        if: steps.discover.outputs.versions != '' || steps.git.outputs.changed == 'true'
+        if: >-
+          steps.discover.outputs.versions != ''
+          || steps.git.outputs.changed == 'true'
+          || steps.plugin-lock.outputs.changed == 'true'
         run: |
           set -euo pipefail
           subject=""
@@ -122,10 +148,13 @@ jobs:
             subject="dsh $(echo ${{ steps.discover.outputs.versions }} | sed 's/ /, /g')"
           fi
           if [ "${{ steps.git.outputs.changed }}" = "true" ]; then
-            gitEntry=$(jq -r '"git " + .version + " (" + (.commit[0:7]) + ")"' pkgs/git.json)
+            gitEntry=$(jq -r '"git-pin " + (.commit[0:7])' pkgs/git.json)
             subject="${subject:+$subject, }${gitEntry}"
           fi
-          echo "title=feat(pkgs): package ${subject}" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.plugin-lock.outputs.changed }}" = "true" ]; then
+            subject="${subject:+$subject, }plugin-lock"
+          fi
+          echo "title=feat(pkgs): ${subject}" >> "$GITHUB_OUTPUT"
 
       - name: Open pull request
         if: steps.meta.outputs.title != ''
@@ -145,7 +174,7 @@ jobs:
           author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           body: |
-            Pinned inputs refreshed by `scripts/prefetch-dsh-version.sh`:
+            Pinned inputs refreshed:
 
             ${{ steps.meta.outputs.title }}
 
@@ -154,14 +183,20 @@ jobs:
               the default `packages.*.deepseek-harness`.
             - `pkgs/git.json` tracks the head of upstream's default
               branch, which is what `dshPackageSets.git` builds.
+            - `pkgs/plugins.lock.json` re-freezes every tracked plugin
+              declaration (`npmVersion = "latest"`, `github = …`) via
+              `scripts/lock-dsh-plugins.py`.
           add-paths: |
             pkgs/versions.json
             pkgs/git.json
+            pkgs/plugins.lock.json
+            pkgs/plugin-locks
           commit-message: |
             ${{ steps.meta.outputs.title }}
 
             Hashes from scripts/prefetch-dsh-version.sh against the upstream
-            dsh-v* tags and the default branch head.
+            dsh-v* tags and the default branch head, and from
+            scripts/lock-dsh-plugins.py for the plugin lock.
 
       # Deferred auto-merge, scoped to this bot's own branch. `--auto` rather
       # than an immediate merge: `main` requires the pull request's checks, so
