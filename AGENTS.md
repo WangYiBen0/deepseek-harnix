@@ -19,6 +19,7 @@ Layout, in one line each:
 | `lib/default.nix` | internal helpers: release list, version comparison, `mkDshPackageSet`, the `dshVersionRange` evaluator |
 | `pkgs/deepseek-harness.nix` | the `dsh` derivation, parameterized by version + hashes |
 | `pkgs/mkDshPlugin.nix` | out-of-tree plugin ("bundle") builder |
+| `pkgs/dsh-plugins.nix` | builds a plugin *set* from a declarations map + lock (see below) |
 | `pkgs/dsh-plugin-declarations.nix` | curated plugin catalog: what each plugin *is* (no hashes) |
 | `pkgs/plugins.lock.json`, `pkgs/plugin-locks/` | generated pins for those declarations (version, hashes, resolved trees) |
 | `pkgs/dsh-plugin-registry.nix` | static npm registry tree built from that catalog |
@@ -216,14 +217,28 @@ The option is `source` for a source tree (not `src`; there is no alias). Keep
 ### Declarations and the generated lock
 
 A plugin is declared once (`pkgs/dsh-plugin-declarations.nix`) and pinned once
-(`pkgs/plugins.lock.json`). The declaration carries no hash and, for a
-registry plugin, no version either — `npmVersion = "latest"` means "the version
-the lock froze". Never hand-edit the lock: run
-`scripts/lock-dsh-plugins.py`, which resolves each declaration through npm,
-fetches the tarball, derives the dependency-store hash from a deliberately
-failing build, and writes any needed `package-lock.json` under
-`pkgs/plugin-locks/`. `--check` (add `--online` to refetch tarball hashes) is
-the drift gate; the `plugin-lock` check enforces the same pairing in CI.
+(`pkgs/plugins.lock.json`). There are three declaration forms: a registry
+plugin (`npmName`, optionally `npmVersion = "latest"` — "the version the lock
+froze"), a GitHub-tracked plugin (`github = "owner/repo"` or
+`{ owner, repo, branch }` — the branch head, the plugin analogue of
+`pkgs/git.json`, pinned as `rev` + unpacked-tree `hash`), or a vendored
+`source` tree. The declaration carries no hash and, for a registry plugin, no
+version either. Never hand-edit the lock: run `scripts/lock-dsh-plugins.py`
+(or `nix run .#update-plugin-lock`), which resolves each declaration through
+npm or `git ls-remote` + `nix store prefetch-file --unpack`, derives the
+dependency-store hash from a deliberately failing build, and writes any needed
+`package-lock.json` under `pkgs/plugin-locks/`. `--check` (add `--online` to
+refetch tarball hashes and re-resolve GitHub heads) is the drift gate; the
+`plugin-lock` check enforces the same pairing in CI.
+
+`pkgs/dsh-plugins.nix` turns a declarations map + lock into a plugin set:
+`lib.mkDshPluginsFor.<system>` (pure), `pkgs.mkDshPlugins` (overlay), per
+package set, or the impure `lib.mkDshPlugins`. The same two-argument call
+serves downstream users with their own declarations and lock; the generator's
+`--declarations`/`--lock` flags exist for exactly that. A GitHub-tracked
+plugin with dependencies must ship a dependency lockfile in its tree — the
+builder's lockfile injection (`srcWithLock`) is registry-only, so the
+generator refuses to record anything else.
 
 Two rules that exist because both failures are silent:
 

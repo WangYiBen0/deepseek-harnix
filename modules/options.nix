@@ -141,6 +141,20 @@ in
       '';
       default = { };
       example = lib.literalExpression ''
+        # DRY form: build a plugin set from declarations + the generated lock
+        # (declare, run `nix run github:WangYiBen0/deepseek-harnix#update-plugin-lock`,
+        # consume) — no hash is hand-written here. Both names come from that set.
+        let
+          plugins = pkgs.mkDshPlugins { };
+        in
+        {
+          work = {
+            bundles = [ "@deepseek-ai/dsh-web-app" ];
+            plugins = with plugins; [ acme local-thing ];
+          };
+        }
+
+        # One-off form: name the fetcher and every hash yourself.
         {
           work = {
             bundles = [ "@deepseek-ai/dsh-web-app" ];

@@ -24,7 +24,9 @@
 - **`git`** 构建上游默认分支的固定头部（`pkgs/git.json`），
   因此总有一个比最新发行版更新的包集合，
 - **`mkDshPlugin`** 可从 npm 包或任意源码树构建树外插件（"bundle"）——
-  无需手动填写元数据，
+  无需手动填写元数据；**`mkDshPlugins`** 可从一个声明文件构建整套插件
+  （npm `latest`、GitHub 追踪或本地源码），版本与 hash 都冻结在生成的
+  lock 文件里，
 - **`pkgs/versions.json`** 是一份只追加的 hash 列表；GitHub Action 会自动
   追加新的上游 `dsh-v*` 发行版，
 - **NixOS / Home Manager 模块**以声明式方式管理 dsh profile 及其插件列表，
@@ -89,20 +91,20 @@ Flake 输出：
 | `packages.<system>.deepseek-harness` | 最新候选版（`latestRc`，也是 `default`）——dsh 尚无稳定发行版，见 `lib/default.nix` 中的 `TODO(release)`。没有按发行版划分的包，因此列表不会随发行版数量增长 |
 | `packages.<system>.deepseek-harness-<channel>` | `-stable`、`-rc`、`-beta`、`-alpha`：每个有发行版的 channel 一个别名，与其版本是同一个 derivation |
 | `packages.<system>.deepseek-harness-git` | 上游默认分支的固定头部（`pkgs/git.json`） |
-| `apps.<system>.*` | `dsh`——无需安装即可运行 CLI |
+| `apps.<system>.*` | `dsh`——无需安装即可运行 CLI；`update-plugin-lock`——重新生成插件 lock（见[预置插件](#预置插件)） |
 | `packages.<system>.dsh-plugin-registry` | 由精选插件目录构建的静态 npm registry 树 |
 | `legacyPackages.<system>.dshPackageSet` | 函数 `version -> package set`（仅限 Nix 代码；按需实例化一个发行版） |
 | `legacyPackages.<system>.dshPackage` | 函数 `version -> deepseek-harness` derivation（仅限 Nix 代码） |
 | `legacyPackages.<system>.dshPackageSets.<version>` | 每个发行版一个包集合，以精确版本字符串为键（每个条目是一个 thunk） |
 | `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.git` | channel 快捷方式（每个预发布标签的最新版，以及分支头部） |
 | `legacyPackages.<system>.dshPlugins` | 精选插件目录（`pkgs/dsh-plugin-declarations.nix` + `pkgs/plugins.lock.json`） |
-| `lib.mkDshPluginFor.<system>` | 针对指定系统的插件构建器（纯求值可用）；`lib.mkDshPlugin` 是 impure 形式 |
-| `overlays.default` | 将 `deepseek-harness`、`mkDshPlugin` 和 `dshPackageSets`（仅按版本为键，没有 `latest`/`git` 快捷方式）注入 pkgs |
+| `lib.mkDshPluginFor.<system>`、`lib.mkDshPluginsFor.<system>` | 针对指定系统的插件构建器 / 插件集合构建器（纯求值可用）；`lib.mkDshPlugin` / `lib.mkDshPlugins` 是 impure 形式 |
+| `overlays.default` | 将 `deepseek-harness`、`mkDshPlugin`、`mkDshPlugins` 和 `dshPackageSets`（仅按版本为键，没有 `latest`/`git` 快捷方式）注入 pkgs |
 | `nixosModules.default`, `homeModules.default` | 声明式 profile 和服务 |
 | `checks.<system>.*` | 共十一个 check；其中 `plugin-e2e`、`dsh-modules-vm`、`home-manager-module` 是关键（见「开发」） |
 
 每个包集合都暴露 `deepseek-harness`（别名 `dsh`）、`withPlugins`、
-`mkDshPlugin` 和 `version`。
+`mkDshPlugin`、`mkDshPlugins` 和 `version`。
 
 顶层只使用 flake schema 中的名称（`packages`、
 `apps`、`checks`、`lib`、`legacyPackages`、`overlays`、`nixosModules`、
@@ -150,6 +152,56 @@ in
 
 预置意味着**可解析**，而非已激活：激活是按 profile 的状态
 （参见模块章节，或用 `dsh plugin` / Web UI 的插件管理器交互式激活）。
+
+### DRY 之路：声明文件、lock、一条命令
+
+手写版本号和 hash 撑不过一个插件。只声明**要什么**，让 lock 文件记录
+**它解析到了什么**——hash 永远不由人手写：
+
+```nix
+# my-plugins.nix —— 三种声明形式：
+{
+  acme = {
+    npmName = "@acme/dsh-plugin-acme";
+    npmVersion = "latest";          # lock 会冻结具体版本
+  };
+  whale = {
+    github = "acme/dsh-plugin-whale";   # 或 { owner, repo, branch }：
+  };                                    # 分支头部，由 lock 冻结
+  local-thing.source = ./local-thing;   # 自己拥有的源码树；请附带 lockfile
+}
+```
+
+解析或刷新 lock——npm 版本、GitHub 分支头、源码树 hash、依赖 store hash；
+此后每次构建都完全离线：
+
+```console
+$ nix run github:WangYiBen0/deepseek-harnix#update-plugin-lock -- \
+    --declarations ./my-plugins.nix --lock ./plugins.lock.json
+```
+
+再把整个集合变成 `pluginList`：
+
+```nix
+let
+  flake = builtins.getFlake "github:WangYiBen0/deepseek-harnix";
+  system = "x86_64-linux";
+  plugins = flake.lib.mkDshPluginsFor.${system} {
+    declarations = ./my-plugins.nix;
+    pluginLock = ./plugins.lock.json;
+  };
+in
+(flake.legacyPackages.${system}.dshPackageSets.latest.deepseek-harness).override {
+  pluginList = builtins.attrValues plugins;
+}
+```
+
+在 NixOS / Home Manager 里，overlay 把它缩短成
+`pkgs.mkDshPlugins { declarations = ./my-plugins.nix; pluginLock = ./plugins.lock.json; }`。
+重复运行是幂等的；`--check`（加 `--online` 可同时重新解析移动引用）会在
+lock 与声明不再一致时失败。本仓库自己的目录
+（`pkgs/dsh-plugin-declarations.nix` + `pkgs/plugins.lock.json`）正是用这套
+流程维护的——版本机器人每次运行都会重新生成 lock。
 
 ### `mkDshPlugin`
 
@@ -216,6 +268,21 @@ mkDshPlugin {
 `legacyPackages.<system>.dshPackageSets.latest.mkDshPlugin`。不带系统前缀的
 `lib.mkDshPlugin` 只在 impure 求值下可用（它读取 `builtins.currentSystem`）；
 在纯 flake 求值中它会直接抛错，而不是猜一个系统。
+
+### `mkDshPlugins`
+
+集合形式包装了 `mkDshPlugin`：接受两个 DRY 参数（`declarations`、
+`pluginLock`）以及任意 `mkDshPlugin` 参数——后者成为集合中每个条目的默认值。
+声明映射以插件名为键，每个值是上面三种形式之一。`github` 条目通过
+`pkgs.fetchFromGitHub` 从 lock 冻结的 `rev`/`hash` 解析——lock 里没有对应
+条目（或已过期）时会抛出带重新生成命令的错误。声明了依赖的 GitHub 插件
+必须在源码树里附带依赖 lockfile（与本地 `source` 源码树同一契约）；lock
+生成器会拒绝记录不满足该条件的插件。
+
+可通过 `lib.mkDshPluginsFor.<system>` 访问，也可通过 `overlays.default`
+作为 `pkgs.mkDshPlugins` 访问，或按包集合访问
+（`legacyPackages.<system>.dshPackageSets.<v>.mkDshPlugins`）；不带系统前缀的
+`lib.mkDshPlugins` 与 `mkDshPlugin` 一样受 `currentSystem` 限制。
 
 ## 声明式 profile（NixOS / Home Manager）
 

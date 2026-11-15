@@ -166,10 +166,31 @@ let
   # default is honestly "the newest release candidate": a stable lookup is
   # null today, and a `latestOf "any"` fallback would only mean "some rc".
   defaultRelease = latestOf "rc";
+
+  # A whole plugin set from declarations + the generated lock: the DRY form of
+  # one `mkDshPlugin` call per plugin. `declarations` is an attrset or a path
+  # to a file holding one; every hash comes from `pluginLock`, and a
+  # `github` declaration additionally gets its rev + tree hash from there —
+  # which is what makes "track the repo head" a regeneration instead of an
+  # edit. Both defaults name this flake's own catalog; a downstream consumer
+  # overrides them (see the README's mkDshPlugins section).
+  mkDshPluginsFor =
+    pkgs: args:
+    pkgs.callPackage ../pkgs/dsh-plugins.nix (
+      {
+        declarations = import ../pkgs/dsh-plugin-declarations.nix;
+        pluginLock = ../pkgs/plugins.lock.json;
+      } // args
+    );
 in
 {
   inherit releases versionCompare channelOf sanitizeVersion dshSatisfiesRange latestOf;
   inherit gitRelease defaultRelease srcCurlOpts;
+
+  # The set form of `mkDshPlugin`: a declarations file (+ the generated lock)
+  # in, `{ name = plugin; }` out. Takes `pkgs` explicitly because it sits at
+  # flake-lib level, where no system is in scope.
+  mkDshPlugins = { pkgs, ... }@args: mkDshPluginsFor pkgs (builtins.removeAttrs args [ "pkgs" ]);
 
   # One release entry (pkgs/versions.json) → one package set.
   mkDshPackageSet =
@@ -215,5 +236,7 @@ in
           ) pluginList;
         };
       mkDshPlugin = args: pkgs.callPackage ../pkgs/mkDshPlugin.nix args;
+      # The set form, bound to this set's `pkgs`.
+      mkDshPlugins = args: mkDshPluginsFor pkgs args;
     };
 }
