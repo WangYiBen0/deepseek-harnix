@@ -130,6 +130,19 @@ in
           type = "app";
           program = "${config.packages.deepseek-harness}/bin/dsh";
         };
+        # Regenerate a plugin lock (this repo's catalog by default; a
+        # downstream catalog points --declarations/--lock at its own files).
+        # The script lives in the store copy of this flake under `nix run`,
+        # where its own path is not the flake root — hence --flake-root.
+        update-plugin-lock = {
+          type = "app";
+          program = toString (
+            pkgs.writeShellScript "update-plugin-lock" ''
+              exec ${pkgs.python3}/bin/python3 ${../scripts/lock-dsh-plugins.py} \
+                --flake-root ${../.} "$@"
+            ''
+          );
+        };
         default = config.apps.dsh;
       };
     };

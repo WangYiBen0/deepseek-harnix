@@ -26,7 +26,9 @@ build from npm or any source tree, and **profiles** are managed declaratively.
   (`pkgs/git.json`), so there is always a set newer than the last
   release,
 - **`mkDshPlugin`** builds an out-of-tree plugin ("bundle") from an npm
-  package or any source tree — no manual metadata,
+  package or any source tree — no manual metadata; **`mkDshPlugins`** builds
+  a whole set from one declarations file (npm `latest`, GitHub-tracked or
+  vendored sources), with versions and hashes frozen in a generated lock,
 - **`pkgs/versions.json`** is an append-only hash list; a GitHub Action appends
   new upstream `dsh-v*` releases automatically,
 - **NixOS / Home Manager modules** manage dsh profiles and their plugin lists
@@ -94,20 +96,20 @@ Flake outputs:
 | `packages.<system>.deepseek-harness` | newest release candidate (`latestRc`, also `default`) — dsh has no stable release yet; see the `TODO(release)` in `lib/default.nix`. No per-release packages, so the list never grows with the release count |
 | `packages.<system>.deepseek-harness-<channel>` | `-stable`, `-rc`, `-beta`, `-alpha`: one alias per channel that has a release, same derivation as its version |
 | `packages.<system>.deepseek-harness-git` | the pinned head of upstream's default branch (`pkgs/git.json`) |
-| `apps.<system>.*` | `dsh` — run the CLI without installing |
+| `apps.<system>.*` | `dsh` — run the CLI without installing; `update-plugin-lock` — regenerate a plugin lock (see [Baking in plugins](#baking-in-plugins)) |
 | `packages.<system>.dsh-plugin-registry` | static npm registry tree built from the curated plugin catalog |
 | `legacyPackages.<system>.dshPackageSet` | function `version -> package set` (Nix code only; instantiates one release on demand) |
 | `legacyPackages.<system>.dshPackage` | function `version -> deepseek-harness` derivation (Nix code only) |
 | `legacyPackages.<system>.dshPackageSets.<version>` | package set per release, keyed by the exact version string (each entry is a thunk) |
 | `legacyPackages.<system>.dshPackageSets.latest`, `.latestRc`, …, `.git` | channel shortcuts (newest per pre-release label, plus the branch head) |
 | `legacyPackages.<system>.dshPlugins` | curated plugin catalog (`pkgs/dsh-plugin-declarations.nix` + `pkgs/plugins.lock.json`) |
-| `lib.mkDshPluginFor.<system>` | plugin builder for a named system (pure); `lib.mkDshPlugin` is the impure form |
-| `overlays.default` | `deepseek-harness`, `mkDshPlugin` and `dshPackageSets` (version-keyed only — no `latest`/`git` shortcuts) into a pkgs |
+| `lib.mkDshPluginFor.<system>`, `lib.mkDshPluginsFor.<system>` | plugin builder / plugin-set builder for a named system (pure); `lib.mkDshPlugin` / `lib.mkDshPlugins` are the impure forms |
+| `overlays.default` | `deepseek-harness`, `mkDshPlugin`, `mkDshPlugins` and `dshPackageSets` (version-keyed only — no `latest`/`git` shortcuts) into a pkgs |
 | `nixosModules.default`, `homeModules.default` | declarative profiles and services |
 | `checks.<system>.*` | eleven checks; `plugin-e2e`, `dsh-modules-vm` and `home-manager-module` are the load-bearing ones (see Development) |
 
 Each package set exposes `deepseek-harness` (alias `dsh`), `withPlugins`,
-`mkDshPlugin`, and `version`.
+`mkDshPlugin`, `mkDshPlugins`, and `version`.
 
 Only names from the flake schema are used at the top level (`packages`,
 `apps`, `checks`, `lib`, `legacyPackages`, `overlays`, `nixosModules`,
@@ -157,6 +159,58 @@ in
 Baked-in means **resolvable**, not active: activation is per-profile state
 (see the module section, or activate interactively with `dsh plugin` / the web
 UI's plugin manager).
+
+### The DRY way: declarations, a lock, one command
+
+Writing versions and hashes by hand does not scale past one plugin. Declare
+**what** you want and let a lock file record **what that resolved to** — no
+hash is ever written by a human:
+
+```nix
+# my-plugins.nix — three declaration forms:
+{
+  acme = {
+    npmName = "@acme/dsh-plugin-acme";
+    npmVersion = "latest";          # the lock freezes the concrete version
+  };
+  whale = {
+    github = "acme/dsh-plugin-whale";   # or { owner, repo, branch }: the
+  };                                    # branch head, frozen by the lock
+  local-thing.source = ./local-thing;   # a tree you own; ship it a lockfile
+}
+```
+
+Resolve or refresh the lock — npm versions, GitHub branch heads, tree hashes
+and dependency-store hashes; afterwards every build is fully offline:
+
+```console
+$ nix run github:WangYiBen0/deepseek-harnix#update-plugin-lock -- \
+    --declarations ./my-plugins.nix --lock ./plugins.lock.json
+```
+
+And turn the whole set into a `pluginList`:
+
+```nix
+let
+  flake = builtins.getFlake "github:WangYiBen0/deepseek-harnix";
+  system = "x86_64-linux";
+  plugins = flake.lib.mkDshPluginsFor.${system} {
+    declarations = ./my-plugins.nix;
+    pluginLock = ./plugins.lock.json;
+  };
+in
+(flake.legacyPackages.${system}.dshPackageSets.latest.deepseek-harness).override {
+  pluginList = builtins.attrValues plugins;
+}
+```
+
+Inside NixOS/Home Manager the overlay shortens this to
+`pkgs.mkDshPlugins { declarations = ./my-plugins.nix; pluginLock = ./plugins.lock.json; }`.
+Re-runs are idempotent; `--check` (add `--online` to also re-resolve moving
+refs) fails when the lock no longer matches the declarations. This
+repository's own catalog (`pkgs/dsh-plugin-declarations.nix` +
+`pkgs/plugins.lock.json`) is maintained exactly this way — the version bot
+regenerates the lock on every run.
 
 ### `mkDshPlugin`
 
@@ -228,6 +282,24 @@ Accessible as `lib.mkDshPluginFor.<system>`, as `pkgs.mkDshPlugin` through
 `lib.mkDshPlugin` only works in an impure evaluation (it reads
 `builtins.currentSystem`); in a pure flake evaluation it throws rather than
 guessing a system.
+
+### `mkDshPlugins`
+
+The set form wraps `mkDshPlugin`: it takes the two DRY arguments
+(`declarations`, `pluginLock`) plus any `mkDshPlugin` argument, which becomes
+the default for every entry in the set. The declaration map is keyed by plugin
+name; each value is one of the three forms above. A `github` entry resolves
+through `pkgs.fetchFromGitHub` from the lock's frozen `rev`/`hash` —
+evaluating without a lock entry (or with a stale one) throws with the
+regenerate command. A GitHub-tracked plugin that declares dependencies must
+ship a dependency lockfile in its tree (same contract as a vendored `source`
+tree); the lock generator refuses to record one that doesn't.
+
+Accessible as `lib.mkDshPluginsFor.<system>`, as `pkgs.mkDshPlugins` through
+`overlays.default`, per package set
+(`legacyPackages.<system>.dshPackageSets.<v>.mkDshPlugins`), and as the
+impure `lib.mkDshPlugins` (same `currentSystem` restriction as
+`mkDshPlugin`).
 
 ## Declarative profiles (NixOS / Home Manager)
 

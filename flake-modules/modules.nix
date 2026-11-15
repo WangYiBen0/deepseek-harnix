@@ -1,4 +1,4 @@
-{ inputs, config, lib, ... }:
+{ inputs, config, lib, flakelib, ... }:
 
 {
   flake = {
@@ -44,6 +44,15 @@
         (inputs.nixpkgs.legacyPackages.${system}).callPackage ../pkgs/mkDshPlugin.nix args
       );
 
+      # The set form: a declarations file (+ the generated lock) in,
+      # `{ name = plugin; }` out — with `pkgs` resolved per system, so the
+      # same purity argument as `mkDshPluginFor` applies.
+      mkDshPluginsFor = lib.genAttrs config.systems (
+        system:
+        args:
+        flakelib.mkDshPlugins ({ pkgs = inputs.nixpkgs.legacyPackages.${system}; } // args)
+      );
+
       mkDshPlugin =
         args:
         if builtins ? currentSystem then
@@ -56,8 +65,24 @@
             `builtins.currentSystem` is unavailable (pure flake evaluation).
             Use one of:
               inputs.deepseek-harnix.lib.mkDshPluginFor.${builtins.head config.systems} { … }
+              inputs.deepseek-harnix.lib.mkDshPluginsFor.${builtins.head config.systems} { … }
               inputs.deepseek-harnix.legacyPackages.<system>.dshPackageSets.latest.mkDshPlugin { … }
               pkgs.mkDshPlugin { … }   # from overlays.default
+          '';
+
+      # Same split for the set form: impure convenience here, `mkDshPluginsFor`
+      # for pure (flake) evaluation, `pkgs.mkDshPlugins` from the overlay.
+      mkDshPlugins =
+        args:
+        if builtins ? currentSystem then
+          flakelib.mkDshPlugins ({ pkgs = inputs.nixpkgs.legacyPackages.${builtins.currentSystem}; } // args)
+        else
+          throw ''
+            deepseek-harnix: `mkDshPlugins` needs a system, but
+            `builtins.currentSystem` is unavailable (pure flake evaluation).
+            Use one of:
+              inputs.deepseek-harnix.lib.mkDshPluginsFor.${builtins.head config.systems} { … }
+              pkgs.mkDshPlugins { … }   # from overlays.default
           '';
     };
   };
