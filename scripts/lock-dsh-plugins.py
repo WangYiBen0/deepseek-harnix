@@ -214,9 +214,14 @@ def dep_hash(
         "version": 1,
         "plugins": {**known, key: stub_entry},
     }
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+    # Next to the real lock, not in /tmp: a generated `npmLockfile` resolves
+    # as `<lock dir>/plugin-locks/…` (mkDshPlugin joins it onto the lock's
+    # directory), and the stub build must see the same file the real build
+    # will — otherwise the build dies in the source-injection step, before
+    # the dependency fetcher can report the hash this function reads back.
+    stub_path = LOCK.parent / f".{key}.dep-stub.json"
+    with open(stub_path, "w") as f:
         json.dump(stub, f)
-        stub_path = f.name
     env = {**os.environ, "PATH": f"{node_bin}:{os.environ['PATH']}"}
     # The builders come from the flake root — this checkout, or, under
     # `nix run …#update-plugin-lock`, the flake's own store copy (the script
@@ -227,7 +232,10 @@ def dep_hash(
         " pkgs = f.inputs.nixpkgs.legacyPackages.${builtins.currentSystem};"
         f" in (import {FLAKE / 'pkgs' / 'dsh-plugins.nix'} "
         f"{{ inherit pkgs;"
-        f" pluginLock = {json.dumps(stub_path)};"
+        # `/. + "…"` turns the string back into a *path*: a lock entry that
+        # names an npmLockfile makes mkDshPlugin resolve it against
+        # `dirOf pluginLock`, which throws unless pluginLock is a path.
+        f" pluginLock = /. + {json.dumps(str(stub_path.resolve()))};"
         f" declarations = {json.dumps(str(declarations_path.resolve()))}; }})"
         f".{json.dumps(key)}"
     )
@@ -246,7 +254,12 @@ def dep_hash(
     found = GOT.findall(proc.stdout + proc.stderr)
     if found:
         return found[-1]
-    say(f"  ! {key}: build failed without naming a hash")
+    # A failure here is a puzzle for whoever runs this next; a last-line
+    # summary is not enough to solve it. Keep the whole build log next to the
+    # lock and say where it went.
+    log = LOCK.parent / f".{key}.dep-fail.log"
+    log.write_text(proc.stdout + proc.stderr)
+    say(f"  ! {key}: build failed without naming a hash; full log: {log}")
     say("    " + (proc.stderr.strip().splitlines() or ["(no output)"])[-1])
     return DEP_FAILED
 
@@ -258,7 +271,12 @@ def node_bin() -> str:
         "--print-out-paths",
         "--impure",
         "--expr",
-        'let f = builtins.getFlake "path:' + str(REPO) + '"; in '
+        # FLAKE, not REPO: under `nix run` the script lives in a store bin
+        # dir, where REPO is nowhere near a flake. The app passes the flake's
+        # own store copy as --flake-root; a direct checkout run sets FLAKE to
+        # this repo. Either way this is the flake whose nixpkgs the dep-hash
+        # builds use, so node must come from the same one.
+        'let f = builtins.getFlake "path:' + str(FLAKE) + '"; in '
         "f.inputs.nixpkgs.legacyPackages.${builtins.currentSystem}.nodejs_24",
     )
     if proc.returncode != 0:
