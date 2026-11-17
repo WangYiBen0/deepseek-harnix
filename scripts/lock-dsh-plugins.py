@@ -98,11 +98,17 @@ def declarations(path: Path) -> dict[str, dict]:
     """
     expr = (
         "let d = import " + json.dumps(str(path.resolve())) + "; in builtins.toJSON ("
-        "builtins.mapAttrs (_: v: {"
-        "  npmName = v.npmName or null;"
+        "builtins.mapAttrs (k: v: {"
+        # A registry declaration defaults to the ecosystem's naming
+        # convention, `dsh-<key>`; a source or github declaration builds from
+        # its own fetcher and carries no npmName at all.
+        '  npmName = v.npmName or (if v ? source || v ? github then null else "dsh-" + k);'
         "  npmVersion = v.npmVersion or null;"
+        "  npmVersionRange = v.npmVersionRange or null;"
+        "  npmVersionRegex = v.npmVersionRegex or null;"
         "  packageDir = v.packageDir or null;"
         "  github = v.github or null;"
+        "  fetchSubmodules = v.fetchSubmodules or false;"
         "  source = if v ? source then toString v.source else null;"
         "}) d)"
     )
@@ -154,13 +160,165 @@ def tarball_url(name: str, version: str) -> str:
     return f"https://registry.npmjs.org/{encoded}/-/{base}-{version}.tgz"
 
 
-def resolve_version(name: str, declared: str | None) -> str:
+# ── npm version resolution ─────────────────────────────────────────────────
+# Just enough node-semver to pick a version out of a range: comparators
+# `>=`, `>`, `<=`, `<`, `=`, `^`, `~` and a bare or wildcarded version,
+# ANDed together when space-separated. A prerelease never satisfies a range
+# unless one of the comparators anchors a prerelease at the same release
+# triple — the node-semver rule — so `>=0.3.1` ignores `0.4.0-beta.1`.
+
+_SEMVER = re.compile(
+    r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
+)
+_COMPARATOR = re.compile(
+    r"^(>=|<=|>|<|=|\^|~)?\s*v?(\d+|x|\*)(?:\.(\d+|x|\*))?(?:\.(\d+|x|\*))?"
+    r"(?:-([0-9A-Za-z.-]+))?$"
+)
+
+
+def _pre_tuple(text: str | None) -> tuple:
+    """A semver prerelease as comparable tuples: numeric < alphanumeric."""
+    if not text:
+        return ()
+    return tuple(
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in text.split(".")
+    )
+
+
+def parse_version(text: str):
+    """(major, minor, patch, rank, prerelease) or None when `text` is not semver.
+
+    `rank` orders a release above prereleases of the same triple (0 when a
+    prerelease is present, 1 when not), which plain tuple concatenation gets
+    backwards — semver says 1.2.3 > 1.2.3-beta.1."""
+    m = _SEMVER.match(text.strip())
+    if m is None:
+        return None
+    pre = _pre_tuple(m.group(4))
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), 0 if pre else 1, pre)
+
+
+def parse_comparator(text: str):
+    """One comparator as (predicate, prerelease anchor).
+
+    The anchor is the (major, minor, patch) of a comparator that carries its
+    own prerelease, or None; a prerelease version satisfies a range only when
+    some comparator anchors it at the same release triple."""
+    m = _COMPARATOR.match(text.strip())
+    if m is None:
+        sys.exit(f"unsupported npm version comparator: {text!r} "
+                 "(use >=, >, <=, <, =, ^, ~, or a bare version)")
+    op = m.group(1) or "="
+    parts = [m.group(i) for i in (2, 3, 4)]
+    missing = [p is None or p in ("x", "*") for p in parts]
+    if parts[0] in ("x", "*"):
+        maj = 0
+        missing[0] = True
+    else:
+        maj = int(parts[0])
+    minor = 0 if missing[1] else int(parts[1])
+    patch = 0 if missing[2] else int(parts[2])
+    pre = _pre_tuple(m.group(5))
+    if pre and any(missing):
+        sys.exit(f"unsupported npm version comparator: {text!r} "
+                 "(a prerelease cannot sit on a wildcard)")
+
+    if op in (">=", "<=", ">", "<"):
+        v = (maj, minor, patch, 0 if pre else 1, pre)
+        ops = {
+            ">=": lambda w: w >= v,
+            "<=": lambda w: w <= v,
+            ">": lambda w: w > v,
+            "<": lambda w: w < v,
+        }
+        return ops[op], (v[:3] if pre else None)
+    if op == "=":
+        if missing[0]:
+            return (lambda w: True), None
+        if missing[1]:
+            # `1` (and `1.x`): every 1.y.z.
+            lo, hi = (maj, 0, 0, 1, ()), (maj + 1, 0, 0, 1, ())
+            return (lambda w, lo=lo, hi=hi: lo <= w < hi), None
+        if missing[2]:
+            # `1.2` and `1.2.x`: every 1.2.z.
+            lo, hi = (maj, minor, 0, 1, ()), (maj, minor + 1, 0, 1, ())
+            return (lambda w, lo=lo, hi=hi: lo <= w < hi), None
+        v = (maj, minor, patch, 0 if pre else 1, pre)
+        return (lambda w, v=v: w == v), (v[:3] if pre else None)
+    # ^ and ~: at least `lo`, below the first version that would break the
+    # promise. The 0.0.x special case bumps the patch instead.
+    lo = (maj, minor, patch, 0 if pre else 1, pre)
+    if op == "^":
+        if missing[1] or maj > 0:
+            hi = (maj + 1, 0, 0, 1, ())
+        elif missing[2] or minor > 0:
+            hi = (0, minor + 1, 0, 1, ())
+        else:
+            hi = (0, 0, patch + 1, 1, ())
+    else:
+        if missing[1]:
+            hi = (maj + 1, 0, 0, 1, ())
+        elif maj == 0 and minor == 0:
+            hi = (0, 0, patch + 1, 1, ())
+        else:
+            hi = (maj, minor + 1, 0, 1, ())
+    return (lambda w, lo=lo, hi=hi: lo <= w < hi), (lo[:3] if pre else None)
+
+
+def range_satisfies(version, comparators) -> bool:
+    """Does a parsed version satisfy every comparator of the range?"""
+    if not all(pred(version) for pred, _ in comparators):
+        return False
+    if not version[3]:
+        return any(anchor == version[:3] for _, anchor in comparators)
+    return True
+
+
+def resolve_npm_version(key: str, decl: dict) -> str:
+    """The version a registry declaration resolves to.
+
+    An explicit `npmVersion` is taken as-is (it outranks the constraints).
+    Otherwise `npmVersionRange` (node-semver comparators) or
+    `npmVersionRegex` (a full match against the version string) filters the
+    published versions and the highest survivor wins; with neither, the
+    package's `dist-tags.latest` does. Whatever resolves freezes into the
+    lock, so builds stay reproducible either way."""
+    name = decl["npmName"]
+    declared = decl["npmVersion"]
     if declared is not None and declared != "latest":
+        if decl.get("npmVersionRange") or decl.get("npmVersionRegex"):
+            say(f"  {key}: an explicit npmVersion outranks npmVersionRange/npmVersionRegex")
         return declared
-    version = npm_metadata(name).get("dist-tags", {}).get("latest")
-    if not version:
-        sys.exit(f"{name} publishes no dist-tags.latest")
-    return version
+    regex = decl.get("npmVersionRegex")
+    range_text = decl.get("npmVersionRange")
+    if regex is not None and range_text is not None:
+        sys.exit(f"{key}: name ONE of npmVersionRange and npmVersionRegex")
+    meta = npm_metadata(name)
+    if regex is None and range_text is None:
+        version = meta.get("dist-tags", {}).get("latest")
+        if not version:
+            sys.exit(f"{name} publishes no dist-tags.latest")
+        return version
+    comparators = None
+    if range_text is not None:
+        comparators = [parse_comparator(t) for t in range_text.split()]
+    candidates = []
+    for text in meta.get("versions", {}):
+        version = parse_version(text)
+        if version is None:
+            continue
+        if comparators is not None:
+            if not range_satisfies(version, comparators):
+                continue
+        elif re.fullmatch(regex, text) is None:
+            continue
+        candidates.append((version, text))
+    if not candidates:
+        want = f"no published version matches {range_text!r}" if comparators \
+            else f"no published version matches /{regex}/"
+        sys.exit(f"{key}: {want}")
+    return max(candidates)[1]
 
 
 def prefetch(
@@ -334,11 +492,39 @@ def github_entry(
     ref = f"refs/heads/{gh['branch']}" if gh["branch"] else "HEAD"
     rev = ls_remote(base, ref)
     entry: dict = {"rev": rev}
-    hash_, tree = prefetch(
-        f"{base}/archive/{rev}.tar.gz",
-        store_name=f"{gh['repo']}-{rev[:7]}.tar.gz",
-        unpack=True,
-    )
+    if decl.get("fetchSubmodules"):
+        # prefetch-file cannot fetch git submodules, but fetchFromGitHub with
+        # `fetchSubmodules = true` can. Learn the hash the way dep_hash does —
+        # let a stub fetch fail and read its `got:` line — then fetch for real
+        # to read the tree (version, lockfiles).
+        def probe_expr(hash_expr: str) -> str:
+            return (
+                'let f = builtins.getFlake "path:' + str(FLAKE) + '";'
+                " pkgs = f.inputs.nixpkgs.legacyPackages.${builtins.currentSystem}; in "
+                f"pkgs.fetchFromGitHub {{ owner = {json.dumps(gh['owner'])};"
+                f" repo = {json.dumps(gh['repo'])}; rev = {json.dumps(rev)};"
+                f" fetchSubmodules = true; hash = {hash_expr}; }}"
+            )
+
+        proc = nix("build", "-L", "--no-link", "--impure",
+                   "--expr", probe_expr("pkgs.lib.fakeHash"))
+        found = GOT.findall(proc.stdout + proc.stderr)
+        if not found:
+            sys.exit(f"{key}: cannot probe the {gh['owner']}/{gh['repo']} tree "
+                     f"hash (does {gh['repo']} exist?):\n{proc.stderr}")
+        hash_ = found[-1]
+        proc = nix("build", "-L", "--no-link", "--print-out-paths",
+                   "--impure", "--expr", probe_expr(json.dumps(hash_)))
+        if proc.returncode != 0:
+            sys.exit(f"{key}: cannot fetch {gh['owner']}/{gh['repo']} at "
+                     f"{rev[:7]}:\n{proc.stderr}")
+        tree = Path(proc.stdout.strip().splitlines()[-1])
+    else:
+        hash_, tree = prefetch(
+            f"{base}/archive/{rev}.tar.gz",
+            store_name=f"{gh['repo']}-{rev[:7]}.tar.gz",
+            unpack=True,
+        )
     entry["hash"] = hash_
 
     root = tree / decl["packageDir"] if decl.get("packageDir") else tree
@@ -379,7 +565,7 @@ def registry_entry(
     declarations_path: Path,
 ) -> dict:
     name = decl["npmName"]
-    version = resolve_version(name, decl["npmVersion"])
+    version = resolve_npm_version(key, decl)
     url = tarball_url(name, version)
     entry: dict = {"version": version}
     hash_, tarball = prefetch(url, f"{name.rsplit('/', 1)[-1]}-{version}.tgz")
@@ -492,6 +678,22 @@ def main() -> None:
                 for field in ("version", "hash"):
                     if field not in entry:
                         say(f"  {key:<28} entry has no `{field}`")
+                        stale += 1
+                declared = decl["npmVersion"]
+                if declared is not None and declared != "latest":
+                    # mkDshPlugin lets an explicit version win over the lock,
+                    # so a moved declaration builds against the OLD tarball
+                    # hash and fails loudly; catch it here instead.
+                    if entry.get("version") != declared:
+                        say(f"  {key:<28} declaration pins {declared}, "
+                            f"lock has {entry.get('version')}")
+                        stale += 1
+                elif args.online and "version" in entry:
+                    want = resolve_npm_version(key, decl)
+                    if want != entry["version"]:
+                        say(f"  {key:<28} resolution moved")
+                        say(f"    recorded: {entry['version']}")
+                        say(f"    expected: {want}")
                         stale += 1
                 if args.online and "version" in entry:
                     url = tarball_url(decl["npmName"], entry["version"])
