@@ -55,8 +55,12 @@ let
   # A `github` declaration builds from the tree the lock froze. The fetcher
   # stays out of the declaration on purpose: rev and hash are *data* the
   # generator owns, so tracking a moving head is a regeneration, not an edit.
+  # `fetchSubmodules = true` (a sibling of `github` in the declaration) makes
+  # the fetch pull git submodules too — the generator freezes the hash of the
+  # submodule-complete tree, so the same tree the lock describes is what
+  # builds here.
   githubSource =
-    key: gh:
+    key: gh: submodules:
     let
       entry =
         lockData.plugins.${key} or (throw ''
@@ -66,21 +70,40 @@ let
             scripts/lock-dsh-plugins.py  (or `nix run github:WangYiBen0/deepseek-harnix#update-plugin-lock`)'');
       repo = normalizeGithub gh;
     in
-    pkgs.fetchFromGitHub {
-      inherit (repo) owner repo;
-      rev = entry.rev or (throw "dsh-plugins.nix: lock entry ${key} has no `rev`");
-      hash = entry.hash or (throw "dsh-plugins.nix: lock entry ${key} has no `hash`");
-    };
+    pkgs.fetchFromGitHub (
+      {
+        inherit (repo) owner repo;
+        rev = entry.rev or (throw "dsh-plugins.nix: lock entry ${key} has no `rev`");
+        hash = entry.hash or (throw "dsh-plugins.nix: lock entry ${key} has no `hash`");
+      }
+      // lib.optionalAttrs submodules { fetchSubmodules = true; }
+    );
 
   mk =
     key: declaration:
+    let
+      # A registry declaration defaults to the ecosystem's naming convention,
+      # `dsh-<key>`; a source or github declaration builds from its own
+      # fetcher and carries no npmName at all.
+      npmName =
+        if declaration ? source || declaration ? github then
+          declaration.npmName or null
+        else
+          declaration.npmName or "dsh-${key}";
+    in
     pkgs.callPackage ./mkDshPlugin.nix (
-      (builtins.removeAttrs declaration [ "github" ])
+      # Generator-only resolution fields never reach mkDshPlugin.
+      (builtins.removeAttrs declaration [
+        "github"
+        "npmVersionRange"
+        "npmVersionRegex"
+        "fetchSubmodules"
+      ])
       // (lib.optionalAttrs (declaration ? github) {
-        source = githubSource key declaration.github;
+        source = githubSource key declaration.github (declaration.fetchSubmodules or false);
       })
       // {
-        inherit pluginLock;
+        inherit npmName pluginLock;
         lockKey = key;
       }
     );
