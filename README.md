@@ -172,6 +172,8 @@ hash is ever written by a human:
   acme = {
     npmName = "@acme/dsh-plugin-acme";
     npmVersion = "latest";          # the lock freezes the concrete version
+    # optional: npmName defaults to "dsh-${key}" for registry declarations
+
   };
   whale = {
     github = "acme/dsh-plugin-whale";   # or { owner, repo, branch }: the

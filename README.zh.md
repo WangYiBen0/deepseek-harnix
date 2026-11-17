@@ -164,6 +164,7 @@ in
   acme = {
     npmName = "@acme/dsh-plugin-acme";
     npmVersion = "latest";          # lock 会冻结具体版本
+    # 可选：registry 声明中 npmName 默认是 "dsh-${key}"
   };
   whale = {
     github = "acme/dsh-plugin-whale";   # 或 { owner, repo, branch }：
