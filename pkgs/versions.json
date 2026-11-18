@@ -264,6 +264,20 @@
       "commit": "38a6a5c965aa99ab525161efb7cc5cf1fe62fced",
       "srcHash": "sha256-TG+bRRaRCv21XJ9DWcMQFbhRVFPj4ELOAttNHaEnM0U=",
       "pnpmDepsHash": "sha256-md84fDBaEnqdQxlsTpaGTkGWWH1dLUGwlSp0EJ+aOA4="
+    },
+    {
+      "version": "0.2.2-rc.4",
+      "rev": "dsh-v0.2.2-rc.4",
+      "commit": "3f321d32bfe382212a8ed8785c1d47a5a300aa23",
+      "srcHash": "sha256-1tsG0k3apzoE2/WEHC1+BSoHx7MYImlkO04dyN1j7hA=",
+      "pnpmDepsHash": "sha256-md84fDBaEnqdQxlsTpaGTkGWWH1dLUGwlSp0EJ+aOA4="
+    },
+    {
+      "version": "0.2.2-rc.5",
+      "rev": "dsh-v0.2.2-rc.5",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "srcHash": "sha256-CfctCHM34m49S940yXgSPDwBQivUIoDeN36nHBegh2g=",
+      "pnpmDepsHash": "sha256-md84fDBaEnqdQxlsTpaGTkGWWH1dLUGwlSp0EJ+aOA4="
     }
   ]
 }
