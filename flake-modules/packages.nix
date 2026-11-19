@@ -123,7 +123,12 @@ in
         dsh-plugin-registry = pkgs.callPackage ../pkgs/dsh-plugin-registry.nix {
           plugins = catalogFor pkgs;
         };
-      } // channelPackages pkgs;
+
+        # Individual plugins from the curated catalog, exposed as first-class
+        # flake packages so they can be built with `nix build .#<plugin-name>`
+        # without pulling the whole registry or harness.
+      } // lib.mapAttrs' (name: plugin: lib.nameValuePair "dsh-plugin-${name}" plugin) (catalogFor pkgs)
+        // channelPackages pkgs;
 
       apps = {
         dsh = {

@@ -492,6 +492,13 @@ def github_entry(
     ref = f"refs/heads/{gh['branch']}" if gh["branch"] else "HEAD"
     rev = ls_remote(base, ref)
     entry: dict = {"rev": rev}
+
+    # Fast path: if an existing lock entry matches the resolved rev, reuse it
+    # (skip the tree hash probe and all dep-hash work).
+    old = known.get(key) if known else None
+    if old and old.get("rev") == rev:
+        say(f"  {key}: rev unchanged ({rev[:7]}), reusing lock entry")
+        return old
     if decl.get("fetchSubmodules"):
         # prefetch-file cannot fetch git submodules, but fetchFromGitHub with
         # `fetchSubmodules = true` can. Learn the hash the way dep_hash does —
@@ -528,8 +535,23 @@ def github_entry(
     entry["hash"] = hash_
 
     root = tree / decl["packageDir"] if decl.get("packageDir") else tree
+    # Make the lock the authority: if the declaration does not supply a version,
+    # and the lock entry has one, use the lock's version. Otherwise, if the
+    # tree's package.json has no version and the declaration does not either,
+    # fail loudly rather than silently substituting "0.0.0".
     manifest = json.loads((root / "package.json").read_text())
-    entry.setdefault("version", manifest.get("version", "0.0.0"))
+    if decl.get("version") is not None:
+        entry["version"] = decl["version"]
+    elif old and "version" in old:
+        entry["version"] = old["version"]
+    elif manifest.get("version") is not None:
+        entry["version"] = manifest["version"]
+    else:
+        sys.exit(
+            f"{key}: github source has no `version` in package.json "
+            f"and the declaration supplies none. Pass `version` explicitly "
+            f"in the declaration, or ensure the tree's package.json carries one."
+        )
 
     # Like a source plugin: the tree must ship its own dependency lockfile.
     # Unlike a registry tarball there is no injection step for a fetched tree
@@ -568,6 +590,14 @@ def registry_entry(
     version = resolve_npm_version(key, decl)
     url = tarball_url(name, version)
     entry: dict = {"version": version}
+
+    # Fast path: if the lock already pins this exact version, reuse the entry.
+    # Skips the tarball prefetch and all dep-hash work.
+    old = known.get(key) if known else None
+    if old and old.get("version") == version:
+        say(f"  {key}: version unchanged ({version}), reusing lock entry")
+        return old
+
     hash_, tarball = prefetch(url, f"{name.rsplit('/', 1)[-1]}-{version}.tgz")
     entry["hash"] = hash_
 
