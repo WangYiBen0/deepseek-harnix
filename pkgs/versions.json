@@ -278,6 +278,20 @@
       "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
       "srcHash": "sha256-CfctCHM34m49S940yXgSPDwBQivUIoDeN36nHBegh2g=",
       "pnpmDepsHash": "sha256-md84fDBaEnqdQxlsTpaGTkGWWH1dLUGwlSp0EJ+aOA4="
+    },
+    {
+      "version": "0.2.3-alpha.1",
+      "rev": "dsh-v0.2.3-alpha.1",
+      "commit": "d98f5d68519215da48f3002da2cb9c9d2068d81d",
+      "srcHash": "sha256-GnnWAZYFScuz8kILj+fi8rrYXzlrmGmqoKfB1wU1FVg=",
+      "pnpmDepsHash": "sha256-6lvXQ5XEgOKz7YCRsxgE8qCxV0zyYttwQDTt+ZzFsNQ="
+    },
+    {
+      "version": "0.2.3-alpha.2",
+      "rev": "dsh-v0.2.3-alpha.2",
+      "commit": "4b399c39a6d1479cd84ca591b4d7c88e24d38a96",
+      "srcHash": "sha256-pKolEG1BXJQYrTtEG30c1z8ABL3Iehr+9JniwBtrUoY=",
+      "pnpmDepsHash": "sha256-5eUkgQcMw6d6+yTzJMZgIYYeC/8RtfgIXnkEn+1a8HY="
     }
   ]
 }
