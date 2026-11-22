@@ -178,6 +178,10 @@ hash is ever written by a human:
   whale = {
     github = "acme/dsh-plugin-whale";   # or { owner, repo, branch }: the
   };                                    # branch head, frozen by the lock
+  tui = {
+    github = "acme/dsh-tui";
+    nestedPnpmDir = "vendor/dsh-std";   # the build's nested workspace; the
+  };                                    # lock pins its store as nestedPnpmDepsHash
   local-thing.source = ./local-thing;   # a tree you own; ship it a lockfile
 }
 ```
@@ -270,7 +274,10 @@ Behavior:
   lockfile (`vendor/…`, a git submodule) needs its own dependency store:
   `nestedPnpmDeps` is unpacked and `nestedPnpmDir`'s `pnpm-workspace.yaml` is
   extended with `storeDir` + `offline` (pnpm 11 ignores `.npmrc` and
-  `npm_config_*` for these settings),
+  `npm_config_*` for these settings). In the declarative form only
+  `nestedPnpmDir` is written — the generator probes that store and the lock
+  pins it as `nestedPnpmDepsHash`, which `dsh-plugins.nix` turns back into
+  the fetcher on the same submodule-complete tree,
 - `npmBuildScript` selects the script for both package managers; plugins that
   run a verification harness from `build` (dsh-tui) can point it at `compile`,
 - peers (cordis and friends) are **not** auto-installed (`autoInstallPeers =
