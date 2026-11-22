@@ -176,11 +176,18 @@ let
   # overrides them (see the README's mkDshPlugins section).
   mkDshPluginsFor =
     pkgs: args:
-    pkgs.callPackage ../pkgs/dsh-plugins.nix (
+    # Plain `import`, not `callPackage`: dsh-plugins.nix returns an attrset of
+    # plugins, and `callPackage` wraps the result in `makeOverridable`, which
+    # injects `override`/`overrideDerivation` KEYS into it. A consumer doing
+    # `lib.attrValues plugins` then feeds those functions to a `package`-typed
+    # option and fails with “is not of type `package`”.
+    import ../pkgs/dsh-plugins.nix (
       {
+        inherit pkgs;
         declarations = import ../pkgs/dsh-plugin-declarations.nix;
         pluginLock = ../pkgs/plugins.lock.json;
-      } // args
+      }
+      // args
     );
 in
 {
