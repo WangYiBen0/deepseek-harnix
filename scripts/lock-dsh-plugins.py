@@ -62,7 +62,7 @@ DECLARATIONS = REPO / "pkgs" / "dsh-plugin-declarations.nix"
 FLAKE = REPO
 
 GOT = re.compile(r"got:\s+(sha256-[A-Za-z0-9+/=]+)")
-DEP_HASHES = ("npmDepsHash", "pnpmDepsHash", "yarnDepsHash")
+DEP_HASHES = ("npmDepsHash", "pnpmDepsHash", "yarnDepsHash", "nestedPnpmDepsHash")
 NPM_LOCKFILES = ("package-lock.json", "pnpm-lock.yaml", "yarn.lock")
 
 
@@ -107,6 +107,7 @@ def declarations(path: Path) -> dict[str, dict]:
         "  npmVersionRange = v.npmVersionRange or null;"
         "  npmVersionRegex = v.npmVersionRegex or null;"
         "  packageDir = v.packageDir or null;"
+        "  nestedPnpmDir = v.nestedPnpmDir or null;"
         "  version = v.version or null;"
         "  github = v.github or null;"
         "  fetchSubmodules = v.fetchSubmodules or false;"
@@ -356,7 +357,7 @@ DEP_FAILED = object()  # the build failed without naming a hash
 
 def dep_hash(
     key: str, entry: dict, known: dict[str, dict], node_bin: str,
-    declarations_path: Path,
+    declarations_path: Path, strip: tuple = None,
 ) -> object:
     """Learn a dependency-store hash from a build with a deliberately wrong one.
 
@@ -368,7 +369,7 @@ def dep_hash(
     installs nothing and needs no dependency pin), or {DEP_FAILED} when it
     failed for a reason that is not a hash mismatch.
     """
-    stub_entry = {k: v for k, v in entry.items() if k not in DEP_HASHES}
+    stub_entry = {k: v for k, v in entry.items() if k not in (strip or DEP_HASHES)}
     stub = {
         "version": 1,
         "plugins": {**known, key: stub_entry},
@@ -420,7 +421,38 @@ def dep_hash(
     log.write_text(proc.stdout + proc.stderr)
     say(f"  ! {key}: build failed without naming a hash; full log: {log}")
     say("    " + (proc.stderr.strip().splitlines() or ["(no output)"])[-1])
-    return DEP_FAILED
+def nested_dep_hash(key: str, tree: Path, nested_dir: str) -> object:
+    """Learn the nested workspace's offline-store hash by probing it directly.
+
+    A `nestedPnpmDir` workspace (a vendored git submodule with its own
+    lockfile) is a second, independent fetchPnpmDeps beside the outer store.
+    The combined stub build cannot tell their failures apart — whichever
+    fetcher dies last answers for both — so this pointed wrong-hash trick
+    aims straight at the nested tree: exactly one fetcher, exactly one
+    `got:` line.
+
+    Returns the SRI hash, or DEP_FAILED when the build died for a non-hash
+    reason (full log kept next to the lock).
+    """
+    expr = (
+        'let f = builtins.getFlake "path:' + str(FLAKE) + '";'
+        " pkgs = f.inputs.nixpkgs.legacyPackages.${builtins.currentSystem}; in"
+        " pkgs.fetchPnpmDeps {"
+        ' pname = "dsh-plugin-' + key + '-nested-store";'
+        ' version = "0";'
+        ' src = /. + "' + str(tree) + '" + "/' + nested_dir + '";'
+        " pnpm = pkgs.pnpm_11; fetcherVersion = 4;"
+        " hash = pkgs.lib.fakeHash; }"
+    )
+    proc = nix("build", "-L", "--no-link", "--impure", "--expr", expr)
+    found = GOT.findall(proc.stdout + proc.stderr)
+    if not found:
+        log = LOCK.parent / f".{key}.nested-dep-fail.log"
+        log.write_text(proc.stdout + proc.stderr)
+        say(f"  ! {key}: nested store probe failed; full log: {log}")
+        say("    " + (proc.stderr.strip().splitlines() or ["(no output)"])[-1])
+        return DEP_FAILED
+    return found[-1]
 
 
 def node_bin() -> str:
@@ -497,7 +529,14 @@ def github_entry(
     # Fast path: if an existing lock entry matches the resolved rev, reuse it
     # (skip the tree hash probe and all dep-hash work).
     old = known.get(key) if known else None
-    if old and old.get("rev") == rev:
+    # The fast path only holds when the old entry pins everything the
+    # declaration needs — a nestedPnpmDir added since the last run still
+    # needs its store probed.
+    if (
+        old
+        and old.get("rev") == rev
+        and (not decl.get("nestedPnpmDir") or "nestedPnpmDepsHash" in old)
+    ):
         say(f"  {key}: rev unchanged ({rev[:7]}), reusing lock entry")
         return old
     if decl.get("fetchSubmodules"):
@@ -571,8 +610,35 @@ def github_entry(
             "them from — ship one upstream, or vendor the tree with a "
             "`source` declaration and a lockfile of your own."
         )
+    # A `nestedPnpmDir` declaration names a workspace the plugin's own build
+    # installs offline (a vendored git submodule with its own lockfile, as
+    # dsh-TUI's vendor/dsh-std). Probe that store directly: it is a second,
+    # independent fetchPnpmDeps, and a combined stub build cannot tell whose
+    # `got:` line it just printed. dsh-plugins.nix rebuilds exactly this
+    # fetcher from the pinned hash.
+    nd = decl.get("nestedPnpmDir")
+    if nd:
+        if not (tree / nd / "pnpm-lock.yaml").is_file():
+            sys.exit(
+                f"{key}: nestedPnpmDir {nd!r} ships no pnpm-lock.yaml; the "
+                "build's nested offline install would have nothing to resolve."
+            )
+        if node is not None:
+            found = nested_dep_hash(key, tree, nd)
+            if found is DEP_FAILED:
+                sys.exit(f"{key}: could not determine its nested-store hash")
+            entry["nestedPnpmDepsHash"] = found
+
     if has_lock and node is not None:
-        found = dep_hash(key, entry, known or {}, node, declarations_path)
+        # With a nested store pinned above, strip only the OUTER fields from
+        # the stub: the nested fetcher then succeeds on its correct hash and
+        # the only mismatching one reports its `got:` here.
+        strip = (
+            tuple(h for h in DEP_HASHES if h != "nestedPnpmDepsHash")
+            if nd
+            else None
+        )
+        found = dep_hash(key, entry, known or {}, node, declarations_path, strip=strip)
         if found is DEP_FAILED:
             sys.exit(f"{key}: could not determine its dependency-store hash")
         if found is not NO_DEPS:
@@ -689,6 +755,9 @@ def main() -> None:
                 stale += 1
                 continue
             if decl.get("github"):
+                if decl.get("nestedPnpmDir") and "nestedPnpmDepsHash" not in entry:
+                    say(f"  {key:<28} entry has no `nestedPnpmDepsHash`")
+                    stale += 1
                 for field in ("rev", "hash", "version"):
                     if field not in entry:
                         say(f"  {key:<28} entry has no `{field}`")

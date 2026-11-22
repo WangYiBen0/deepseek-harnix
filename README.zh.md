@@ -169,6 +169,10 @@ in
   whale = {
     github = "acme/dsh-plugin-whale";   # 或 { owner, repo, branch }：
   };                                    # 分支头部，由 lock 冻结
+  tui = {
+    github = "acme/dsh-tui";
+    nestedPnpmDir = "vendor/dsh-std";   # 构建内部再装的嵌套 workspace；
+  };                                    # lock 以 nestedPnpmDepsHash 钉住其 store
   local-thing.source = ./local-thing;   # 自己拥有的源码树；请附带 lockfile
 }
 ```
@@ -257,7 +261,9 @@ mkDshPlugin {
   （`vendor/…`，一个 git submodule），需要它自己的依赖 store：
   解包 `nestedPnpmDeps`，并给 `nestedPnpmDir` 的 `pnpm-workspace.yaml`
   追加 `storeDir` + `offline`（pnpm 11 在这些设置上忽略 `.npmrc` 和
-  `npm_config_*`），
+  `npm_config_*`）。声明式形式里只需写 `nestedPnpmDir`——生成器会探测
+  该 store，并由 lock 以 `nestedPnpmDepsHash` 钉住，`dsh-plugins.nix`
+  再在同一个含 submodule 的源码树上把它还原成 fetcher，
 - `npmBuildScript` 为两种包管理器选择脚本；从 `build` 运行验证 harness
   的插件（dsh-tui）可将其指向 `compile`，
 - peer（cordis 及其同类）**不会**自动安装（`autoInstallPeers =
