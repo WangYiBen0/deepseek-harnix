@@ -90,6 +90,30 @@ let
           declaration.npmName or null
         else
           declaration.npmName or "dsh-${key}";
+      # A `nestedPnpmDir` declaration builds against an *offline store* the
+      # plugin's own build script installs into (a vendored git submodule
+      # workspace with its own lockfile). The generator probes that store and
+      # pins `nestedPnpmDepsHash`; rebuild the fetcher from the pin here, on
+      # the same tree the `github` entry froze — fetchSubmodules included,
+      # because the nested workspace *is* submodule content.
+      nestedDeps =
+        if !(declaration ? nestedPnpmDir) then
+          null
+        else
+          pkgs.fetchPnpmDeps {
+            pname = "dsh-plugin-${key}-nested-store";
+            version = "0";
+            src =
+              githubSource key declaration.github (declaration.fetchSubmodules or false)
+              + "/${declaration.nestedPnpmDir}";
+            pnpm = pkgs.pnpm_11;
+            fetcherVersion = 4;
+            hash =
+              lockData.plugins.${key}.nestedPnpmDepsHash or (throw ''
+                dsh-plugins.nix: ${key} declares nestedPnpmDir, but the lock has
+                no `nestedPnpmDepsHash` for it. Regenerate the lock:
+                  scripts/lock-dsh-plugins.py (or `nix run …#update-plugin-lock`)'');
+          };
     in
     pkgs.callPackage ./mkDshPlugin.nix (
       # Generator-only resolution fields never reach mkDshPlugin.
@@ -101,6 +125,9 @@ let
       ])
       // (lib.optionalAttrs (declaration ? github) {
         source = githubSource key declaration.github (declaration.fetchSubmodules or false);
+      })
+      // (lib.optionalAttrs (nestedDeps != null) {
+        nestedPnpmDeps = nestedDeps;
       })
       // {
         inherit npmName pluginLock;
