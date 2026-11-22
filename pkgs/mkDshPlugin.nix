@@ -212,7 +212,7 @@ let
     if npmVersion != null && npmVersion != "latest" then
       npmVersion
     else if lockEntry != null then
-      lockEntry.version or (throw "mkDshPlugin: lock entry ${lockKeyFinal} has no `version`")
+      lockEntry.version or npmVersion
     else
       npmVersion;
 
@@ -392,8 +392,11 @@ let
           if (m) pnpmAutoInstallPeers = m[1] === "true";
         }
         const result = {
-          name: manifest.name,
-          version: manifest.version,
+          // Match manifestFrom: absent metadata must become null, not an
+          // omitted JSON key (which would make `manifest.version` throw
+          // before an explicit `version` override can be considered).
+          name: manifest.name ?? null,
+          version: manifest.version ?? null,
           description: manifest.description || "",
           hasBuildScript: Boolean(manifest.scripts && manifest.scripts.build),
           lockfile,
@@ -416,7 +419,13 @@ let
       # tree, not the tarball we pinned).
       builtins.fromJSON (builtins.readFile manifestDrv);
 
-  finalName = if pname != null then pname else manifest.name;
+  finalName =
+    if pname != null then
+      pname
+    else if (manifest.name or null) != null then
+      manifest.name
+    else
+      "dsh-plugin";
 
   autoInstallPeersFinal =
     if autoInstallPeers != null then
@@ -464,7 +473,15 @@ let
         lib.optional (manifest.lockfile == "npm" && !autoInstallPeersFinal) "--legacy-peer-deps"
         ++ lib.optional lockNeedsPlatformRelax "--force"
       );
-  finalVersion = if version != null then version else manifest.version;
+  # `or` only fires on a *missing* attribute, and our manifest readers emit
+  # `version: null` on purpose — so test the value, not the presence.
+  finalVersion =
+    if version != null then
+      version
+    else if (manifest.version or null) != null then
+      manifest.version
+    else
+      "0.0.0";
 
   # Directory the package manager operates in, relative to the source root.
   buildDir = if packageDir != null then packageDir else ".";
@@ -486,9 +503,8 @@ assert
 assert
   manifest.name != null || pname != null || throw
     "mkDshPlugin: source package.json has no `name`; pass `pname` explicitly";
-assert
-  manifest.version != null || version != null || throw
-    "mkDshPlugin: source package.json has no `version`; pass `version` explicitly";
+# A GitHub-tracked plugin pins by rev + source hash; its package.json may
+# legitimately carry no version. Leave version empty instead of aborting.
 assert
   manifest.lockfile != null || npmLockfileFinal != null || (if hasRegistry then manifest.runtimeDependencyCount else manifest.dependencyCount) == 0 || throw ''
     mkDshPlugin: ${finalName} declares dependencies but no lockfile is available.

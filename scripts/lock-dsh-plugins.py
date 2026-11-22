@@ -107,6 +107,7 @@ def declarations(path: Path) -> dict[str, dict]:
         "  npmVersionRange = v.npmVersionRange or null;"
         "  npmVersionRegex = v.npmVersionRegex or null;"
         "  packageDir = v.packageDir or null;"
+        "  version = v.version or null;"
         "  github = v.github or null;"
         "  fetchSubmodules = v.fetchSubmodules or false;"
         "  source = if v ? source then toString v.source else null;"
@@ -547,11 +548,9 @@ def github_entry(
     elif manifest.get("version") is not None:
         entry["version"] = manifest["version"]
     else:
-        sys.exit(
-            f"{key}: github source has no `version` in package.json "
-            f"and the declaration supplies none. Pass `version` explicitly "
-            f"in the declaration, or ensure the tree's package.json carries one."
-        )
+        # No version anywhere — the lock still pins HEAD rev + source hash;
+        # version stays null and consumers must not assume semver metadata.
+        entry["version"] = None
 
     # Like a source plugin: the tree must ship its own dependency lockfile.
     # Unlike a registry tarball there is no injection step for a fetched tree
